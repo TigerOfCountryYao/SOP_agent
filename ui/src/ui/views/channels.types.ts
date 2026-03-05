@@ -26,6 +26,7 @@ export type ChannelsProps = {
   whatsappQrDataUrl: string | null;
   whatsappConnected: boolean | null;
   whatsappBusy: boolean;
+  whatsappAccountId: string | null;
   configSchema: unknown;
   configSchemaLoading: boolean;
   configForm: Record<string, unknown> | null;
@@ -35,9 +36,10 @@ export type ChannelsProps = {
   nostrProfileFormState: NostrProfileFormState | null;
   nostrProfileAccountId: string | null;
   onRefresh: (probe: boolean) => void;
-  onWhatsAppStart: (force: boolean) => void;
-  onWhatsAppWait: () => void;
-  onWhatsAppLogout: () => void;
+  onWhatsAppStart: (force: boolean, accountId?: string) => void;
+  onWhatsAppWait: (accountId?: string) => void;
+  onWhatsAppLogout: (accountId?: string) => void;
+  onWhatsAppAccountChange: (accountId: string) => void;
   onConfigPatch: (path: Array<string | number>, value: unknown) => void;
   onConfigSave: () => void;
   onConfigReload: () => void;

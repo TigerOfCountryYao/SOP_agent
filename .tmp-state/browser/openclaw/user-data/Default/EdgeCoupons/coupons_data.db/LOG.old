@@ -1,0 +1,15 @@
+2026/02/22-20:13:21.360 5ee8 Reusing MANIFEST D:\MyAgent\openclaw\.tmp-state\browser\openclaw\user-data\Default\EdgeCoupons/coupons_data.db/MANIFEST-000001
+2026/02/22-20:13:21.363 5ee8 Recovering log #14
+2026/02/22-20:13:21.390 5ee8 Reusing old log D:\MyAgent\openclaw\.tmp-state\browser\openclaw\user-data\Default\EdgeCoupons/coupons_data.db/000014.log 
+2026/02/22-20:13:21.897 51ec Level-0 table #18: started
+2026/02/22-20:13:21.903 51ec Level-0 table #18: 681676 bytes OK
+2026/02/22-20:13:21.905 51ec Delete type=0 #14
+2026/02/22-20:13:21.906 51ec Compacting 4@0 + 1@1 files
+2026/02/22-20:13:21.918 51ec Generated table #19@0: 3 keys, 681676 bytes
+2026/02/22-20:13:21.918 51ec Compacted 4@0 + 1@1 files => 681676 bytes
+2026/02/22-20:13:21.918 51ec compacted to: files[ 0 1 1 0 0 0 0 ]
+2026/02/22-20:13:21.919 51ec Delete type=2 #8
+2026/02/22-20:13:21.919 51ec Delete type=2 #11
+2026/02/22-20:13:21.919 51ec Delete type=2 #13
+2026/02/22-20:13:21.919 51ec Delete type=2 #15
+2026/02/22-20:13:21.920 51ec Delete type=2 #18

@@ -4,9 +4,9 @@ export const TAB_GROUPS = [
   { label: "Chat", tabs: ["chat"] },
   {
     label: "Control",
-    tabs: ["overview", "channels", "instances", "sessions", "usage", "cron"],
+    tabs: ["overview", "channels", "instances", "sessions", "usage", "cron", "sites"],
   },
-  { label: "Agent", tabs: ["agents", "skills", "nodes"] },
+  { label: "Agent", tabs: ["agents", "skills", "sops", "nodes"] },
   { label: "Settings", tabs: ["config", "debug", "logs"] },
 ] as const;
 
@@ -18,7 +18,9 @@ export type Tab =
   | "sessions"
   | "usage"
   | "cron"
+  | "sites"
   | "skills"
+  | "sops"
   | "nodes"
   | "chat"
   | "config"
@@ -33,7 +35,9 @@ const TAB_PATHS: Record<Tab, string> = {
   sessions: "/sessions",
   usage: "/usage",
   cron: "/cron",
+  sites: "/sites",
   skills: "/skills",
+  sops: "/sops",
   nodes: "/nodes",
   chat: "/chat",
   config: "/config",
@@ -140,8 +144,12 @@ export function iconForTab(tab: Tab): IconName {
       return "barChart";
     case "cron":
       return "loader";
+    case "sites":
+      return "globe";
     case "skills":
       return "zap";
+    case "sops":
+      return "fileCode";
     case "nodes":
       return "monitor";
     case "config":
@@ -171,8 +179,12 @@ export function titleForTab(tab: Tab) {
       return "Usage";
     case "cron":
       return "Cron Jobs";
+    case "sites":
+      return "Website Pool";
     case "skills":
       return "Skills";
+    case "sops":
+      return "SOPs";
     case "nodes":
       return "Nodes";
     case "chat":
@@ -204,8 +216,12 @@ export function subtitleForTab(tab: Tab) {
       return "";
     case "cron":
       return "Schedule wakeups and recurring agent runs.";
+    case "sites":
+      return "Monitor website login sessions and QR re-auth state.";
     case "skills":
       return "Manage skill availability and API key injection.";
+    case "sops":
+      return "Standard Operating Procedures and automated workflows.";
     case "nodes":
       return "Paired devices, capabilities, and command exposure.";
     case "chat":

@@ -16,7 +16,9 @@ import { modelsHandlers } from "./server-methods/models.js";
 import { nodeHandlers } from "./server-methods/nodes.js";
 import { sendHandlers } from "./server-methods/send.js";
 import { sessionsHandlers } from "./server-methods/sessions.js";
+import { sitePoolHandlers } from "./server-methods/site-pool.js";
 import { skillsHandlers } from "./server-methods/skills.js";
+import { sopHandlers } from "./server-methods/sop.js";
 import { systemHandlers } from "./server-methods/system.js";
 import { talkHandlers } from "./server-methods/talk.js";
 import { ttsHandlers } from "./server-methods/tts.js";
@@ -71,6 +73,9 @@ const READ_METHODS = new Set([
   "cron.list",
   "cron.status",
   "cron.runs",
+  "sop.list",
+  "sop.status",
+  "sop.history",
   "system-presence",
   "last-heartbeat",
   "node.list",
@@ -78,6 +83,9 @@ const READ_METHODS = new Set([
   "chat.history",
   "config.get",
   "talk.config",
+  "sitepool.list",
+  "sitepool.events",
+  "sitepool.qr",
 ]);
 const WRITE_METHODS = new Set([
   "send",
@@ -94,6 +102,12 @@ const WRITE_METHODS = new Set([
   "chat.send",
   "chat.abort",
   "browser.request",
+  "sop.run",
+  "sop.create",
+  "sitepool.create",
+  "sitepool.check",
+  "sitepool.reauth",
+  "sitepool.policy.update",
 ]);
 
 function authorizeGatewayMethod(method: string, client: GatewayRequestOptions["client"]) {
@@ -186,6 +200,7 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
   ...ttsHandlers,
   ...skillsHandlers,
   ...sessionsHandlers,
+  ...sitePoolHandlers,
   ...systemHandlers,
   ...updateHandlers,
   ...nodeHandlers,
@@ -194,6 +209,7 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
   ...agentHandlers,
   ...agentsHandlers,
   ...browserHandlers,
+  ...sopHandlers,
 };
 
 export async function handleGatewayRequest(

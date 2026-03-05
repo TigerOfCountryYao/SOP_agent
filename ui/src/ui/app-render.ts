@@ -65,7 +65,9 @@ import { renderLogs } from "./views/logs.ts";
 import { renderNodes } from "./views/nodes.ts";
 import { renderOverview } from "./views/overview.ts";
 import { renderSessions } from "./views/sessions.ts";
+import { renderSitePool } from "./views/site-pool.ts";
 import { renderSkills } from "./views/skills.ts";
+import { renderSOPs } from "./views/sops.ts";
 
 const AVATAR_DATA_RE = /^data:/i;
 const AVATAR_HTTP_RE = /^https?:\/\//i;
@@ -241,6 +243,7 @@ export function renderApp(state: AppViewState) {
                 whatsappQrDataUrl: state.whatsappLoginQrDataUrl,
                 whatsappConnected: state.whatsappLoginConnected,
                 whatsappBusy: state.whatsappBusy,
+                whatsappAccountId: state.whatsappAccountId,
                 configSchema: state.configSchema,
                 configSchemaLoading: state.configSchemaLoading,
                 configForm: state.configForm,
@@ -250,9 +253,12 @@ export function renderApp(state: AppViewState) {
                 nostrProfileFormState: state.nostrProfileFormState,
                 nostrProfileAccountId: state.nostrProfileAccountId,
                 onRefresh: (probe) => loadChannels(state, probe),
-                onWhatsAppStart: (force) => state.handleWhatsAppStart(force),
-                onWhatsAppWait: () => state.handleWhatsAppWait(),
-                onWhatsAppLogout: () => state.handleWhatsAppLogout(),
+                onWhatsAppStart: (force, accountId) => state.handleWhatsAppStart(force, accountId),
+                onWhatsAppWait: (accountId) => state.handleWhatsAppWait(accountId),
+                onWhatsAppLogout: (accountId) => state.handleWhatsAppLogout(accountId),
+                onWhatsAppAccountChange: (accountId) => {
+                  state.whatsappAccountId = accountId;
+                },
                 onConfigPatch: (path, value) => updateConfigFormValue(state, path, value),
                 onConfigSave: () => state.handleChannelConfigSave(),
                 onConfigReload: () => state.handleChannelConfigReload(),
@@ -681,6 +687,29 @@ export function renderApp(state: AppViewState) {
         }
 
         ${
+          state.tab === "sites"
+            ? renderSitePool({
+                loading: state.sitePoolLoading,
+                busy: state.sitePoolBusy,
+                error: state.sitePoolError,
+                accounts: state.sitePoolAccounts,
+                eventsById: state.sitePoolEventsById,
+                qrById: state.sitePoolQrById,
+                createForm: state.sitePoolCreateForm,
+                onRefresh: () => state.handleLoadSitePool(),
+                onCreateFormPatch: (patch) =>
+                  (state.sitePoolCreateForm = { ...state.sitePoolCreateForm, ...patch }),
+                onCreate: () => state.handleCreateSitePoolAccount(),
+                onCheck: (id) => state.handleCheckSitePoolAccount(id),
+                onReauth: (id) => state.handleReauthSitePoolAccount(id),
+                onPolicyChange: (id, next) => state.handleUpdateSitePoolPolicy(id, next),
+                onLoadQr: (id) => state.handleLoadSitePoolQr(id),
+                onLoadEvents: (id) => state.handleLoadSitePoolEvents(id),
+              })
+            : nothing
+        }
+
+        ${
           state.tab === "skills"
             ? renderSkills({
                 loading: state.skillsLoading,
@@ -697,6 +726,42 @@ export function renderApp(state: AppViewState) {
                 onSaveKey: (key) => saveSkillApiKey(state, key),
                 onInstall: (skillKey, name, installId) =>
                   installSkill(state, skillKey, name, installId),
+              })
+            : nothing
+        }
+
+        ${
+          state.tab === "sops"
+            ? renderSOPs({
+                loading: state.sopsLoading,
+                error: state.sopsError,
+                sopsList: state.sopsList,
+                sopsStatus: state.sopsStatus,
+                sopsRunning: state.sopsRunning,
+                sopsRunResult: state.sopsRunResult,
+                sopsHistory: state.sopsHistory,
+                sopsHistoryName: state.sopsHistoryName,
+                panel: state.sopsPanel,
+                onRefresh: () => state.handleLoadSOPs(),
+                onRun: (name) => state.handleRunSOP(name),
+                onViewHistory: (name) => {
+                  state.sopsPanel = "history";
+                  state.handleLoadSOPHistory(name);
+                },
+                onPanelChange: (p) => {
+                  state.sopsPanel = p;
+                  if (p === "list") state.handleLoadSOPs();
+                  if (p === "status") state.handleLoadSOPStatus();
+                },
+                onHistoryNameChange: (name) => (state.sopsHistoryName = name),
+                onLoadStatus: () => state.handleLoadSOPStatus(),
+                onLoadHistory: (name) => state.handleLoadSOPHistory(name),
+                createForm: state.sopsCreateForm,
+                onCreateFormChange: (patch) =>
+                  (state.sopsCreateForm = { ...state.sopsCreateForm, ...patch }),
+                onCreate: () => state.handleCreateSOP(),
+                showCreate: state.sopsShowCreate,
+                onToggleCreate: () => (state.sopsShowCreate = !state.sopsShowCreate),
               })
             : nothing
         }

@@ -54,6 +54,7 @@ import { getBearerToken, getHeader } from "./http-utils.js";
 import { isPrivateOrLoopbackAddress, resolveGatewayClientIp } from "./net.js";
 import { handleOpenAiHttpRequest } from "./openai-http.js";
 import { handleOpenResponsesHttpRequest } from "./openresponses-http.js";
+import { handleSopUiHttpRequest } from "./sop-ui.js";
 import { handleToolsInvokeHttpRequest } from "./tools-invoke-http.js";
 
 type SubsystemLogger = ReturnType<typeof createSubsystemLogger>;
@@ -565,6 +566,10 @@ export function createGatewayHttpServer(opts: {
         }
       }
       if (controlUiEnabled) {
+        // SOP UI 独立页面 — 在 Control UI 之前处理
+        if (handleSopUiHttpRequest(req, res)) {
+          return;
+        }
         if (
           handleControlUiAvatarRequest(req, res, {
             basePath: controlUiBasePath,

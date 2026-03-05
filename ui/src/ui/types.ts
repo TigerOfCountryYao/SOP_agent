@@ -424,6 +424,54 @@ export type SessionsPatchResult = {
   };
 };
 
+export type SitePoolStatus =
+  | "unknown"
+  | "active"
+  | "expiring"
+  | "expired"
+  | "reauth_required"
+  | "locked";
+
+export type SitePoolLoginType = "qr" | "password_2fa" | "sms" | "email_code" | "unknown";
+
+export type SitePoolKeepalivePolicy = "off" | "until_date" | "continuous";
+
+export type SitePoolAccount = {
+  id: string;
+  siteKey: string;
+  displayName: string;
+  browserProfile?: string;
+  loginType: SitePoolLoginType;
+  status: SitePoolStatus;
+  keepalivePolicy: SitePoolKeepalivePolicy;
+  keepaliveUntil?: string;
+  expiresAt?: string;
+  lastCheckAt?: string;
+  lastSuccessAt?: string;
+  notifyOnExpire: boolean;
+  notifyOnQrRequired: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SitePoolEvent = {
+  id: string;
+  siteAccountId: string;
+  eventType: "status_changed" | "qr_detected" | "login_success" | "login_failed" | "refresh_failed";
+  payload: Record<string, unknown>;
+  createdAt: string;
+};
+
+export type SitePoolQrTask = {
+  id: string;
+  siteAccountId: string;
+  status: "pending" | "ready" | "expired" | "consumed" | "failed";
+  qrImageUrl?: string;
+  qrRawText?: string;
+  expiredAt?: string;
+  createdAt: string;
+};
+
 export type {
   CostUsageDailyEntry,
   CostUsageSummary,

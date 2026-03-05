@@ -1,0 +1,463 @@
+define("Configuration", ["jquery", "purl"], function(e) {
+    var t = e("html").data("locale"),
+        r = "/_Resources/Static/Packages/GoQrMe.Ui/",
+        o = void 0 !== e.url().param("jsdebug") && void 0 !== console && "object" == typeof console && void 0 !== console.debug,
+        n = "http://goqr.me/" + ("en" != t ? t + "/" : "");
+    o && (console.debug("Locale: " + t), console.debug("resourceBasePath: " + r), console.debug("Setting up social share for URL " + n));
+    var i = r + "Images/SocialSharePrivacy/",
+        a = {
+            SocialSharePrivacy: {
+                options: {
+                    css_path: "",
+                    services: {
+                        facebook: {
+                            dummy_line_img: i + ("en" != t ? t + "/" : "") + "dummy_facebook.png",
+                            dummy_box_img: i + ("en" != t ? t + "/" : "") + "dummy_box_facebook.png"
+                        },
+                        twitter: {
+                            dummy_line_img: i + "dummy_twitter.png",
+                            dummy_box_img: i + "dummy_box_twitter.png"
+                        }
+                    },
+                    uri: n
+                }
+            },
+            debug: o,
+            resourceBasePath: r,
+            locale: t,
+            qrCodeBaseUri: "https://api.qrserver.com/v1/create-qr-code/?",
+            embedBaseUri: "https://api.qrserver.com/v1/create-qr-code/?",
+            QrCodeTypes: {
+                text: {
+                    contentsCallback: function() {}
+                },
+                complexVCard: {
+                    contentsCallback: function() {
+                        function t(e, t, r) {
+                            d.readFormField(e) && (a += t + d.readFormField(e) + r)
+                        }
+
+                        function r(t) {
+                            return e("[name=" + t + "]:checked").val()
+                        }
+
+                        function o(e, t) {
+                            return r("addresstype" + e) == t
+                        }
+
+                        function n(e) {
+                            switch (e) {
+                                case "personal":
+                                    type = "HOME";
+                                    break;
+                                case "business":
+                                    type = "WORK"
+                            }
+                            return type
+                        }
+
+                        function i(e) {
+                            function t(t) {
+                                return d.readFormField(t + e)
+                            }
+                            if (!(t("street") || t("city") || t("state") || t("zip") || t("country"))) return "";
+                            var o = n(r("addresstype" + e));
+                            return "ADR;" + o + ":;;" + t("street") + ";" + t("city") + ";" + t("state") + ";" + t("zip") + ";" + t("country") + "\n"
+                        }
+                        var a = "",
+                            d = this;
+                        return this.readFormField("firstname") || this.readFormField("lastname") || this.readFormField("company") ? (a = "BEGIN:VCARD\nVERSION:2.1\n", this.readFormField("firstname") && this.readFormField("lastname") ? (a += "FN:" + this.readFormField("firstname") + " " + this.readFormField("lastname") + "\n", a += "N:" + this.readFormField("lastname") + ";" + this.readFormField("firstname") + "\n") : this.readFormField("firstname") ? (a += "FN:" + this.readFormField("firstname") + "\n", a += "N:;" + this.readFormField("firstname") + "\n") : this.readFormField("lastname") && (a += "FN:" + this.readFormField("lastname") + "\n", a += "N:" + this.readFormField("lastname") + ";\n"), t("title", "TITLE:", "\n"), t("phonemobile", "TEL;CELL:", "\n"), o(1, "business") && t("phone1", "TEL;WORK;VOICE:", "\n"), o(2, "business") && t("phone2", "TEL;WORK;VOICE:", "\n"), o(1, "personal") && t("phone1", "TEL;HOME;VOICE:", "\n"), o(2, "personal") && t("phone2", "TEL;HOME;VOICE:", "\n"), t("fax", "TEL;;FAX:", "\n"), o(1, "personal") && t("mail1", "EMAIL;HOME;INTERNET:", "\n"), o(2, "personal") && t("mail2", "EMAIL;HOME;INTERNET:", "\n"), o(1, "business") && t("mail1", "EMAIL;WORK;INTERNET:", "\n"), o(2, "business") && t("mail2", "EMAIL;WORK;INTERNET:", "\n"), this.readFormField("website") && (a += "URL:" + this.readFormField("website") + "\n"), a += i(1), a += i(2), t("company", "ORG:", "\n"), a += "END:VCARD\n") : ""
+                    }
+                }
+            }
+        };
+    return a
+}), define("Share", ["jquery", "Configuration", "SocialSharePrivacy.Facebook", "SocialSharePrivacy.Twitter"], function(e, t) {
+    function r() {
+        e(document).ready(function() {
+            e(".recommend .share").socialSharePrivacy(t.SocialSharePrivacy.options)
+        })
+    }
+    "de" == t.locale ? require(["SocialSharePrivacy.de", "SocialSharePrivacy.Facebook.de", "SocialSharePrivacy.Twitter.de"], r) : r()
+}), "console" in window || (window.console = {});
+for (var names = ["log", "debug", "info", "warn", "error", "assert", "dir", "dirxml", "group", "groupEnd", "time", "timeEnd", "count", "trace", "profile", "profileEnd"], i = 0; i < names.length; ++i) names[i] in window.console || (window.console[names[i]] = function() {});
+require(["jquery", "Configuration", "foundation.reveal", "foundation.forms", "foundation.topbar", "Share"], function(e, t) {
+    try {
+        e(document).foundation()
+    } catch (o) {}
+}), define("Main", function() {}), define("QrCodeDialogOptions", ["jquery", "Configuration", "dragdealer", "jscolor"], function(e, t, r, o) {
+    var n = function(r, n) {
+        this.initialized = !1, o.dir = t.resourceBasePath + "Images/jscolor/", o.init(), this.QrCodeGenerator = r, this.$rootElement = e(n), this.$rootElement.data("options-dialog-object", this), this.$previewImage = this.$rootElement.find(".preview-image"), this.$fgpicker = this.$rootElement.find("input.fgcolor"), this.$bgpicker = this.$rootElement.find("input.bgcolor"), this.qrCodeDownloadSize = 200, this.updateCallback = null;
+        var i = this.$rootElement.parents(".reveal-modal");
+        return i.length > 0 ? i.on("opened", e.proxy(this._initializeSizeSlider, this)) : this._initializeSizeSlider(), this._initializeColorPickers(), this._initializeUpdateTriggers(), this.update(), this.initialized = !0, this
+    };
+    return n.prototype._isVisible = function() {
+        return this.$rootElement.is(":visible")
+    }, n.prototype.update = function() {
+        this._isVisible() && this._updateQrCodePreview()
+    }, n.prototype.getForegroundColor = function() {
+        return this.$fgpicker.val()
+    }, n.prototype.getBackgroundColor = function() {
+        return this.$bgpicker.val()
+    }, n.prototype.getQuietZone = function() {
+        return this.$rootElement.find(".border option:selected").val()
+    }, n.prototype.getErrorCorrectionCode = function() {
+        return this.$rootElement.find(".ecc").val()
+    }, n.prototype._initializeUpdateTriggers = function() {
+        var e = this,
+            t = function() {
+                e._updateQrCodePreview()
+            };
+        this.$rootElement.find(".ecc").on("change", t), this.$rootElement.find(".border").on("change", t)
+    }, n.prototype._initializeSizeSlider = function() {
+        var o = this;
+        if (!this.dragDealer) {
+            if (0 == this.$rootElement.find(".dragdealer").length) return void(t.debug && console.debug("No Dragdealer size slider found"));
+            var n = 1e3,
+                i = 150,
+                a = 25,
+                d = 400,
+                c = Math.round((n - i) / a),
+                s = i,
+                l = this.$rootElement.find(".dragdealer").attr("id");
+            l || console.error("Could not find size slider id"), t.debug && console.debug("Setting up slider " + l);
+            var u = this.$rootElement.find(".dragdealer .handle");
+            this.dragDealer = new r(l, {
+                steps: c,
+                xPrecision: c,
+                snap: !0,
+                x: (d - i) / a / (c - 1),
+                animationCallback: function(t) {
+                    o.qrCodeDownloadSize = Math.round(t * c) * a + s, u.text(o.qrCodeDownloadSize), clearTimeout(o.sizeUpdateTimer), o.sizeUpdateTimer = setTimeout(e.proxy(o._triggerUpdateEvent, o), 100)
+                }
+            })
+        }
+    }, n.prototype._initializeColorPickers = function() {
+        t.debug && console.debug("Initializing color pickers");
+        var r = this;
+        this.fgpicker = new o.color(this.$fgpicker[0]), this.$fgpicker.on("change", function() {
+            r.fgcolor = e(this).val(), r._updateQrCodePreview()
+        }), this.bgpicker = new o.color(this.$bgpicker[0]), this.$bgpicker.on("change", function() {
+            r.fgcolor = e(this).val(), r._updateQrCodePreview()
+        })
+    }, n.prototype.getParametersForDownload = function() {
+        return {
+            color: this.getForegroundColor(),
+            bgcolor: this.getBackgroundColor(),
+            data: this.QrCodeGenerator.getQrCodeContents(),
+            qzone: this.getQuietZone(),
+            margin: 0,
+            size: this.qrCodeDownloadSize + "x" + this.qrCodeDownloadSize,
+            ecc: this.getErrorCorrectionCode()
+        }
+    }, n.prototype.onUpdate = function(e) {
+        this.updateCallback = e
+    }, n.prototype._updateQrCodePreview = function() {
+        var r = this.getParametersForDownload();
+        r.size = "200x200";
+        var o = t.qrCodeBaseUri + e.param(r);
+        "" != this.QrCodeGenerator.getQrCodeContents() && o != this.$previewImage.attr("src") ? (this.$previewImage.attr("src", o).data("reveal-id", "qr-code-download-dialog"), this._triggerUpdateEvent()) : this.$previewImage.data("reveal-id", "")
+    }, n.prototype._triggerUpdateEvent = function() {
+        this.updateCallback instanceof Function && (t.debug && console.debug("Calling QR code update callback."), this.updateCallback.call(this))
+    }, n
+}), define("QrCodeDownload", ["jquery", "Configuration", "QrCodeDialogOptions"], function(e, t, r) {
+    var o, n = e("#qr-code-download-dialog"),
+        i = !1,
+        a = {
+            initialize: function(e) {
+                o = new r(e, n.find(".qr-code-options-dialog")), i = !0
+            }
+        };
+    return n.on("opened", function() {
+        o.update()
+    }), n.on("closed", function() {
+        e("#qr-code-recommend-dialog").foundation("reveal", "open")
+    }), n.find(".button-download").on("click", function() {
+        var r = o.getParametersForDownload(),
+            n = e(this).data("format");
+        ("svg" == n || "eps" == n) && delete r.size, r.format = n, r.download = "1", window.location.href = t.qrCodeBaseUri + e.param(r)
+    }), a
+}), define("embed", ["jquery", "Configuration", "QrCodeDialogOptions"], function(e, t, r) {
+    function o() {
+        console.log("Update embed code");
+        var t = n.getParametersForDownload(),
+            r = s + e.param(t);
+        e("#qr-code-embed-url").val(r), e("#qr-code-embed-html").val(c(r))
+    }
+    var n, i, a = e("#qr-code-embed-dialog"),
+        d = '<img src="{img}" alt="qr code" />',
+        c = function(e) {
+            return d.replace("{img}", e.replace(/&/g, "&amp;"))
+        },
+        s = t.embedBaseUri ? t.embedBaseUri : t.qrCodeBaseUri;
+    a.on("opened", function() {
+        n.update(), o()
+    });
+    var l = function() {
+        e(this).select()
+    };
+    e("#qr-code-embed-html, #qr-code-embed-url").click(l).dblclick(l).keyup(l).focus(l);
+    var u = {
+        initialize: function(e) {
+            n = new r(e, a.find(".qr-code-options-dialog")), n.onUpdate(function() {
+                o()
+            }), i = !0
+        }
+    };
+    return u
+}), define("QrCodeGenerator", ["jquery", "underscore", "moment", "purl", "QrCodeDownload", "embed", "Configuration"], function(e, t, r, o, n, i, a) {
+    function c(t) {
+        return t ? (t = t.replace(/[^-a-zA-Z]/g, ""), e(".qr-code-form[data-type=" + t + "]")) : e(".qr-code-form[data-type=" + f + "]")
+    }
+    var s, l, u, p, g, m, f = l = "text",
+        h = !1,
+        y = !1,
+        v = {
+            "default": a.resourceBasePath + "Images/qr_default.png",
+            error: a.resourceBasePath + "Images/qr_error.png",
+            loading: a.resourceBasePath + "Images/qr_loading.gif",
+            nodata: a.resourceBasePath + "Images/qr_nodata.png"
+        },
+        b = {
+            isMultiType: !1,
+            rootElement: "#qr-code-widget",
+            types: {}
+        },
+        w = function(e) {
+            return e.search(/(:|;|,|"|\\)/) > -1 && (e = e.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/"/g, '\\"')), e
+        };
+    b.hasQrCodeType = function(e) {
+        return c(e).length > 0
+    }, b.changeQrCodeType = function(t) {
+        f = t, 0 == u.filter("[data-type=" + t + "]").length && (f = u.first().data("type"), console.log("Switched type to " + f)), y, h = !1, m = c(), p.removeClass("selected").filter("[data-type=" + t + "]").addClass("selected"), u.hide(), m.show(), this.isMultiType && t != l ? (window.location.hash = "t=" + f, e("#selected-qr-codes-type").text(f)) : "" != window.location.hash && (window.location.hash = ""), this.updateQrCodePreview()
+    }, b.getSelectedQrCodeType = function() {
+        return f
+    }, b.updateQrCodePreview = function() {
+        var t = "",
+            r = 0,
+            o = e("#qrcode-preview-image"),
+            n = 500,
+            i = !1;
+        return function(c) {
+            var s = (new Date).getTime(),
+                l = b.getQrCodeContents();
+            if (l !== t || c) {
+                if (!l || "" == l) return o.attr("src", v.nodata), void g.hide();
+                if (!(r + n > s && !c || i)) {
+                    h || (h = !0), i = !0, r = s, t = l, o.attr("src", v.loading);
+                    var u = a.qrCodeBaseUri + e.param({
+                            data: t,
+                            size: "220x220",
+                            margin: 0
+                        }),
+                        p = new Image;
+                    p.src = u, e(p).ready(function() {
+                        i = !1, g.show(), o.attr("src", u)
+                    })
+                }
+            }
+        }
+    }();
+    var C = function(e) {
+            return m.find("[name=" + e + "]")
+        },
+        k = function(e) {
+            var t = C(e);
+            return E(t)
+        },
+        E = function(e) {
+            return "checkbox" == e.attr("type") ? e.prop("checked") ? e.val() : "" : "radio" == e.attr("type") ? m.find("[name=" + e.attr("name") + "]:checked").val() : e.val()
+        };
+    return b.getQrCodeContents = function(e) {
+        var o = "";
+        if (e || (e = f), t.size(this.types) > 0 && this.types[e]) {
+            var n = this.types[e];
+            return context = {
+                readFormField: k
+            }, o = n.contentsCallback.call(context)
+        }
+        switch (e) {
+            case "url":
+                o = k("url");
+                break;
+            case "text":
+                o = k("text");
+                break;
+            case "vcard":
+                var i = function(e, t, r) {
+                    k(e) && (o += t + k(e) + r)
+                };
+                if (!k("firstname") && !k("lastname") && !k("company")) return "";
+                o = "BEGIN:VCARD\nVERSION:2.1\n", k("firstname") && k("lastname") ? (o += "FN:" + k("firstname") + " " + k("lastname") + "\n", o += "N:" + k("lastname") + ";" + k("firstname") + "\n") : k("firstname") ? (o += "FN:" + k("firstname") + "\n", o += "N:;" + k("firstname") + "\n") : k("lastname") && (o += "FN:" + k("lastname") + "\n", o += "N:" + k("lastname") + ";\n"), i("title", "TITLE:", "\n"), i("phonemobile", "TEL;CELL:", "\n"), i("phonebusiness", "TEL;WORK;VOICE:", "\n"), i("phonepersonal", "TEL;HOME;VOICE:", "\n"), i("mailpersonal", "EMAIL;HOME;INTERNET:", "\n"), i("mailbusiness", "EMAIL;WORK;INTERNET:", "\n"), k("website") && (o += "URL:" + k("website") + "\n"), (k("street") || k("zip") || k("city") || k("country")) && (o += "ADR:;;" + k("street") + ";" + k("city") + ";;" + k("zip") + ";" + k("country") + "\n"), i("company", "ORG:", "\n"), o += "END:VCARD\n";
+                break;
+            case "sms":
+                var a = k("text");
+                if (!a) return "";
+                o = "SMSTO:" + k("countrycode") + k("areacode") + k("number") + ":" + k("text");
+                break;
+            case "call":
+                if (!k("number")) return "";
+                o = "tel:", o += k("countrycode"), o += k("areacode"), o += k("number");
+                break;
+            case "geolocation":
+                if (!k("latitude") || !k("longitude")) return "";
+                o += "geo:", o += "S" == k("latitude-type") ? "-" : "", o += k("latitude") + ",", o += "W" == k("longitude-type") ? "-" : "", o += k("longitude");
+                break;
+            case "event":
+                if (!k("from") || !k("to")) return "";
+                var d = parseInt(k("timezone")) - r().zone(),
+                    c = C("from").datetimepicker("getDate");
+                c = r(c).utc().add("m", d);
+                var s = c.format("YYYYMMDDTHHmmss\\Z").replace(/(:|-)/g, ""),
+                    l = C("to").datetimepicker("getDate");
+                l = r(l).utc().add("m", d);
+                var u = l.format("YYYYMMDDTHHmmss\\Z").replace(/(:|-)/g, "");
+                o = "BEGIN:VEVENT\nSUMMARY:" + k("description") + "\n", o += "DTSTART:" + s + "\n", o += "DTEND:" + u + "\n", o += "END:VEVENT";
+                break;
+            case "email":
+                if (!k("email")) return "";
+                o = "MATMSG:TO:" + k("email") + ";SUB:" + k("subject") + ";BODY:" + k("text") + ";;";
+                break;
+            case "wifi":
+                if (!k("ssid")) return "";
+                o = "WIFI:T:" + k("type") + ";S:" + w(k("ssid")), o += ";P:", "nopass" != k("type") && (o += w(k("password"))), o += ";", k("hidden") && (o += "H:true"), o += ";"
+        }
+        return o
+    }, b.getQrCodeFields = function(t) {
+        var r, o = {};
+        return r = t ? c(t) : m, r.find("input, textarea, select").each(function() {
+            o[e(this).attr("name")] = E(e(this))
+        }), o
+    }, b.initialize = function() {
+        if (s = e(this.rootElement), u = s.find(".qr-code-form"), p = s.find("div.type-selector"), g = s.find(".action-buttons"), this.isMultiType = u.length > 1, 0 != u.length) {
+            if (u.hide().first().show(), g.hide(), n.initialize(this), i.initialize(this), require(["jquery.datepicker.de", "jquery-ui", "jquery.timepicker", "jquery.timepicker.de"], function() {
+                    require("jquery");
+                    u.find("input[type=datetime]").datetimepicker({
+                        firstDay: 1
+                    })
+                }), this.isMultiType) {
+                var t = e("#selected-qr-codes-type");
+                s.find(".type-selector").on("click", function() {
+                    var t = e(this).data("type");
+                    b.changeQrCodeType(t), b.updateQrCodePreview(!0)
+                }).mouseenter(function() {
+                    t.data("savedType", t.text()), t.text(e(this).data("type"))
+                }).mouseleave(function() {
+                    t.text(f)
+                })
+            }
+            e("#qrcode-url-dynamic").on("change", function() {
+                e(this).prop("checked") ? e("#qrcode-url-information-dynamic").show() : e("#qrcode-url-information-dynamic").hide()
+            });
+            var o = new Image;
+            o.src = v.loading, delete o, o = new Image, o.src = v.error, delete o, o = new Image, o.src = v.nodata, delete o;
+            var a = null,
+                d = function() {
+                    clearTimeout(a), a = setTimeout(b.updateQrCodePreview, 200)
+                };
+            u.find("textarea, input[type=text], input[type=datetime], input[type=password]").keyup(d).on("change", d).on("blur", d), u.find("select, input[type=check], input[type=radio]").on("change", d);
+            var c = function(t, r) {
+                e("#" + t).keyup(function() {
+                    e("#" + r).text(e(this).val().length)
+                }).trigger("keyup")
+            };
+            c("qrcode-field-text-text", "field-text-text-length"), c("qrcode-field-email-text", "field-email-text-length"), c("qrcode-field-sms-text", "field-sms-text-length"), e("#qrcode-field-event-timezone").find('option[value="' + r().zone() + '"]').attr("selected", !0), e.url().fparam("t") && this.hasQrCodeType(e.url().fparam("t")) && (f = e.url().fparam("t"), f = f.replace(/[^-a-zA-Z]/g, "")), this.changeQrCodeType(f), y = !0
+        }
+    }, b
+}), define("zazzle", ["jquery", "Configuration", "QrCodeGenerator", "QrCodeDialogOptions", "foundation.reveal", "purl"], function(e, t, r, o) {
+    var n, i = e("#zazzle-widget"),
+        a = e("#zazzle-dialog"),
+        d = new o(r, i.find(".qr-code-options-dialog")),
+        c = {
+            de: {
+                "error-nocode": "Bitte erstellen Sie zunächst einen QR-Code, bevor Sie den Shop besuchen.",
+                "error-api": "Der Online-Shop konnte auf Grund eines internen Fehlers nicht geöffnet werden. Bitte versuchen Sie es erneut.",
+                "error-invalidcategory": "Der Online-Shop konnte nicht geöffnet werden, die übergebene Kategorie ist unbekannt: ",
+                "error-nocategory": "Der Online-Shop konnte nicht geöffnet werden, es wurde keine Kategorie übergeben.",
+                "error-nodata": "Der Online-Shop konnte nicht geöffnet werden, da keine gültigen Daten übergeben wurden. Bitte generieren Sie einen QR-Code, bevor Sie den Shop öffnen.",
+                "error-unknown": "Unbekannter Fehler beim Öffnen des Shops."
+            },
+            en: {
+                "error-nocode": "Please create a QR code before visiting the shop.",
+                "error-api": "The shop could not be opened due to an internal error. Please try again.",
+                "error-invalidcategory": "The shop could not be opened: unknown category ",
+                "error-nocategory": "Could not open shop, no category given.",
+                "error-nodata": "The shop could not be opened because of invalid data. Please create a QR code before visiting the shop.",
+                "error-unknown": "Unknown error while opening shop."
+            }
+        };
+    c = c[t.locale], void 0 == c && console.error("Zazzle dialog: No messages found for locale " + t.locale);
+    var s = function(o) {
+        var n = {
+            lang: t.locale,
+            qzone: d.getQuietZone(),
+            margin: 0,
+            ecc: d.getErrorCorrectionCode(),
+            color: d.getForegroundColor(),
+            bgcolor: d.getBackgroundColor(),
+            category: o,
+            "charset-target": "UTF-8"
+        };
+        switch (o) {
+            case "businesscards":
+                n.vcard = r.getQrCodeFields("vcard"), n.vcard.firstname && n.vcard.lastname ? n.vcard.name = n.vcard.firstname + " " + n.vcard.lastname : n.vcard.firstname ? n.vcard.name = n.vcard.firstname : n.vcard.lastname && (n.vcard.name = n.vcard.lastname)
+        }
+        n.data = r.getQrCodeContents(), window.location.href = "/shop/?" + e.param(n)
+    };
+    i.find(".zazzle-link").click(function() {
+        return r.getQrCodeContents() ? (n = e(this).data("category"), e("#zazzle-dialog").foundation("reveal", "open"), void e("#zazzle-button-proceed").data("category", n)) : void alert(c["error-nocode"])
+    }), e("#zazzle-button-proceed").click(function() {
+        return s(n), !1
+    }), a.on("opened", function() {
+        d.update()
+    });
+    var l = e.url();
+    if (void 0 !== l.param("shop-error")) {
+        var u;
+        switch (l.param("shop-error")) {
+            case "api-error":
+                u = c["error-api"];
+                break;
+            case "invalid-category":
+                u = l.param("category") ? c["error-invalidcategory"] + l.param("category") + "." : c["error-nocategory"];
+                break;
+            case "no-data":
+                u = c["error-nodata"];
+                break;
+            default:
+                u = c["error-unknown"]
+        }
+        e('<div class="alert-box alert"></div>').text(u).appendTo(e(".alert-boxes"))
+    }
+    return function() {}
+}), define("Pages/Index", ["jquery", "QrCodeGenerator", "zazzle"], function(e, t) {
+    e(document).ready(function() {
+        t.initialize();
+        var r = e(".accordion > dd").hide();
+        e(".accordion a.faq-cross-reference").click(function() {
+            var t = e(e(this).attr("href"));
+            t.trigger("click")
+        }), e(".accordion > dt").click(function() {
+            var t = e(this).next();
+            return t.hasClass("active") || (r.removeClass("active").slideUp(), t.addClass("active").slideDown()), !1
+        })
+    })
+}), define("Pages/QrCodeLogo", ["jquery"], function(e) {
+    e("#logo-offer-dialog").on("open", function() {
+        var t = e(this).find("iframe"),
+            r = t.data("backend-url") + "logo-offer";
+        t.attr("src") != r && t.attr("src", r), t.ready(function() {
+            e("#logo-offer-dialog").find(".loading-indicator-wrap").hide()
+        })
+    }), window.loadIframe = function(e) {
+        document.getElementById("logo-offer-iframe").style.height = e + 10 + "px"
+    }
+}), define("Pages/Vcards", ["Configuration", "QrCodeGenerator", "zazzle"], function(e, t) {
+    var r = e.QrCodeTypes;
+    t.types = {
+        vcard: r.complexVCard
+    }, $(document).ready(function() {
+        t.initialize()
+    })
+}), define("app-1.3.4", function() {});
+//# sourceMappingURL=app-1.3.4.js.map

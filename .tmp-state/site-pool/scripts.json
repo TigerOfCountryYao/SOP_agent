@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "scripts": {
+    "https://goqr.me/": {
+      "version": 1,
+      "siteKey": "https://goqr.me/",
+      "loggedInSelectors": [
+        "[class*='avatar']",
+        "[data-e2e*='avatar']",
+        "img[alt*='avatar']",
+        "[class*='profile'] [class*='name']"
+      ],
+      "qrSelectors": [
+        "img[src*='qr']",
+        "canvas",
+        "img[src^='data:image']",
+        "img[src*='qrcode']",
+        "[class*='qr'] img",
+        "[class*='qrcode'] img"
+      ],
+      "reauthTriggerSelectors": [
+        "button:has-text('\\u91cd\\u65b0\\u767b\\u5f55')",
+        "button:has-text('\\u767b\\u5f55')",
+        "a:has-text('\\u91cd\\u65b0\\u767b\\u5f55')",
+        "a:has-text('\\u767b\\u5f55')",
+        "[role='button']:has-text('\\u91cd\\u65b0\\u767b\\u5f55')",
+        "[role='button']:has-text('\\u767b\\u5f55')",
+        "button:has-text('Sign in')",
+        "a:has-text('Sign in')"
+      ],
+      "waitAfterActionMs": 1200,
+      "source": "learned"
+    }
+  }
+}

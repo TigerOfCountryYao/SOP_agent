@@ -1,0 +1,6 @@
+2026/02/22-20:15:51.847 2b38 Reusing MANIFEST D:\MyAgent\openclaw\.tmp-state\browser\openclaw\user-data\Default\EdgeCoupons/coupons_data.db/MANIFEST-000001
+2026/02/22-20:15:51.850 2b38 Recovering log #17
+2026/02/22-20:15:51.850 2b38 Reusing old log D:\MyAgent\openclaw\.tmp-state\browser\openclaw\user-data\Default\EdgeCoupons/coupons_data.db/000017.log 
+2026/02/22-20:15:52.172 2a64 Level-0 table #22: started
+2026/02/22-20:15:52.180 2a64 Level-0 table #22: 681676 bytes OK
+2026/02/22-20:15:52.190 2a64 Delete type=0 #17

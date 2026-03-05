@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "runs": [
+    {
+      "sopName": "e2e-real-shell",
+      "runId": "ba079488-960d-4ec1-9eca-e7f8d8b961b1",
+      "startedAt": 1771761864348,
+      "finishedAt": 1771761876818,
+      "status": "ok",
+      "steps": [
+        {
+          "action": "shell.run",
+          "params": {
+            "command": "curl -sL https://news.ycombinator.com/"
+          },
+          "startedAt": 1771761873230,
+          "finishedAt": 1771761876814,
+          "status": "ok",
+          "result": "{\"stdout\":\"<html lang=\\\"en\\\" op=\\\"news\\\"><head><meta name=\\\"referrer\\\" content=\\\"origin\\\"><meta name=\\\"viewport\\\" content=\\\"width=device-width, initial-scale=1.0\\\"><link rel=\\\"stylesheet\\\" type=\\\"text/css\\\" href=\\\"news.css?5KPFVjjaHponHfiStUF7\\\"><link rel=\\\"icon\\\" href=\\\"y18.svg\\\"><link rel=\\\"alternate\\\" type=\\\"application/rss+xml\\\" title=\\\"RSS\\\" href=\\\"rss\\\"><title>Hacker News</title></head><body><center><table id=\\\"hnmain\\\" border=\\\"0\\\" cellpadding=\\\"0\\\" cellspacing=\\\"0\\\" width=\\\"85%\\\" bgcolor... (truncated)"
+        },
+        {
+          "action": "fs.write",
+          "params": {
+            "path": "sops/daily_news_real.txt",
+            "length": 24
+          },
+          "startedAt": 1771761876815,
+          "finishedAt": 1771761876817,
+          "status": "ok"
+        },
+        {
+          "action": "fs.exists",
+          "params": {
+            "path": "sops/daily_news_real.txt"
+          },
+          "startedAt": 1771761876817,
+          "finishedAt": 1771761876817,
+          "status": "ok",
+          "result": true
+        }
+      ],
+      "result": {
+        "topTitle": "Back to FreeBSD: Part 1",
+        "outPath": "sops/daily_news_real.txt"
+      },
+      "trigger": "manual"
+    }
+  ]
+}

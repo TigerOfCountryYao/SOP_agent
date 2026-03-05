@@ -46,6 +46,7 @@ import { createSubsystemLogger, runtimeForLogger } from "../logging/subsystem.js
 import { getGlobalHookRunner, runGlobalGatewayStopSafely } from "../plugins/hook-runner-global.js";
 import { createEmptyPluginRegistry } from "../plugins/registry.js";
 import { getTotalQueueSize } from "../process/command-queue.js";
+import { startSitePoolKeepaliveService } from "../site-pool/keepalive.js";
 import { runOnboardingWizard } from "../wizard/onboarding.js";
 import { createAuthRateLimiter, type AuthRateLimiter } from "./auth-rate-limit.js";
 import { startGatewayConfigReloader } from "./config-reload.js";
@@ -505,6 +506,7 @@ export async function startGatewayServer(
   if (!minimalTestGateway) {
     void cron.start().catch((err) => logCron.error(`failed to start: ${String(err)}`));
   }
+  const sitePoolKeepalive = minimalTestGateway ? null : startSitePoolKeepaliveService();
 
   // Recover pending outbound deliveries from previous crash/restart.
   if (!minimalTestGateway) {
@@ -720,6 +722,7 @@ export async function startGatewayServer(
       }
       skillsChangeUnsub();
       authRateLimiter?.dispose();
+      sitePoolKeepalive?.stop();
       await close(opts);
     },
   };

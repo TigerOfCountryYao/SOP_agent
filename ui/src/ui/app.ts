@@ -27,6 +27,11 @@ import type {
   SkillStatusReport,
   StatusSummary,
   NostrProfile,
+  SitePoolAccount,
+  SitePoolEvent,
+  SitePoolQrTask,
+  SitePoolKeepalivePolicy,
+  SitePoolLoginType,
 } from "./types.ts";
 import type { NostrProfileFormState } from "./views/channels.nostr-profile-form.ts";
 import {
@@ -78,6 +83,35 @@ import {
 } from "./app-tool-stream.ts";
 import { normalizeAssistantIdentity } from "./assistant-identity.ts";
 import { loadAssistantIdentity as loadAssistantIdentityInternal } from "./controllers/assistant-identity.ts";
+import {
+  checkSitePoolAccount,
+  createSitePoolAccount,
+  loadSitePoolAccounts,
+  loadSitePoolEvents,
+  loadSitePoolQr,
+  reauthSitePoolAccount,
+  updateSitePoolPolicy,
+} from "./controllers/site-pool.ts";
+import {
+  loadSkills,
+  saveSkillApiKey,
+  updateSkillEdit,
+  updateSkillEnabled,
+} from "./controllers/skills.ts";
+import {
+  createSOP,
+  loadSOPHistory,
+  loadSOPs,
+  loadSOPStatus,
+  runSOP,
+  type SOPCreateResult,
+  type SOPHistoryResult,
+  type SOPListResult,
+  type SOPRunResult,
+  type SOPStatusResult,
+  type SOPsViewPanel,
+} from "./controllers/sops.ts";
+import { loadSessionTimeSeries, loadUsage } from "./controllers/usage.ts";
 import { loadSettings, type UiSettings } from "./storage.ts";
 import { type ChatAttachment, type ChatQueueItem, type CronFormState } from "./ui-types.ts";
 
@@ -187,6 +221,7 @@ export class OpenClawApp extends LitElement {
   @state() channelsSnapshot: ChannelsStatusSnapshot | null = null;
   @state() channelsError: string | null = null;
   @state() channelsLastSuccess: number | null = null;
+  @state() whatsappAccountId: string | null = null;
   @state() whatsappLoginMessage: string | null = null;
   @state() whatsappLoginQrDataUrl: string | null = null;
   @state() whatsappLoginConnected: boolean | null = null;
@@ -198,6 +233,19 @@ export class OpenClawApp extends LitElement {
   @state() presenceEntries: PresenceEntry[] = [];
   @state() presenceError: string | null = null;
   @state() presenceStatus: string | null = null;
+
+  // SOPs state
+  @state() sopsLoading = false;
+  @state() sopsList: SOPListResult | null = null;
+  @state() sopsError: string | null = null;
+  @state() sopsRunning: string | null = null;
+  @state() sopsRunResult: SOPRunResult | null = null;
+  @state() sopsHistory: SOPHistoryResult | null = null;
+  @state() sopsHistoryName = "";
+  @state() sopsStatus: SOPStatusResult | null = null;
+  @state() sopsCreateForm = { name: "", description: "", steps: "", schedule: "" };
+  @state() sopsShowCreate = false;
+  @state() sopsPanel: SOPsViewPanel = "list";
 
   @state() agentsLoading = false;
   @state() agentsList: AgentsListResult | null = null;
@@ -227,6 +275,32 @@ export class OpenClawApp extends LitElement {
   @state() sessionsFilterLimit = "120";
   @state() sessionsIncludeGlobal = true;
   @state() sessionsIncludeUnknown = false;
+
+  @state() sitePoolLoading = false;
+  @state() sitePoolBusy = false;
+  @state() sitePoolError: string | null = null;
+  @state() sitePoolAccounts: SitePoolAccount[] = [];
+  @state() sitePoolEventsById: Record<string, SitePoolEvent[]> = {};
+  @state() sitePoolQrById: Record<string, SitePoolQrTask | null> = {};
+  @state() sitePoolCreateForm: {
+    siteKey: string;
+    displayName: string;
+    browserProfile: string;
+    loginType: SitePoolLoginType;
+    keepalivePolicy: SitePoolKeepalivePolicy;
+    keepaliveUntil: string;
+    notifyOnExpire: boolean;
+    notifyOnQrRequired: boolean;
+  } = {
+    siteKey: "",
+    displayName: "",
+    browserProfile: "",
+    loginType: "qr",
+    keepalivePolicy: "off",
+    keepaliveUntil: "",
+    notifyOnExpire: true,
+    notifyOnQrRequired: true,
+  };
 
   @state() usageLoading = false;
   @state() usageResult: import("./types.js").SessionsUsageResult | null = null;
@@ -415,6 +489,17 @@ export class OpenClawApp extends LitElement {
 
   setTab(next: Tab) {
     setTabInternal(this as unknown as Parameters<typeof setTabInternal>[0], next);
+    switch (next) {
+      case "skills":
+        void this.handleLoadSkills();
+        break;
+      case "sops":
+        void this.handleLoadSOPs();
+        break;
+      case "sites":
+        void this.handleLoadSitePool();
+        break;
+    }
   }
 
   setTheme(next: ThemeMode, context?: Parameters<typeof setThemeInternal>[2]) {
@@ -451,16 +536,80 @@ export class OpenClawApp extends LitElement {
     );
   }
 
-  async handleWhatsAppStart(force: boolean) {
-    await handleWhatsAppStartInternal(this, force);
+  async handleWhatsAppStart(force: boolean, accountId?: string) {
+    await handleWhatsAppStartInternal(this, force, accountId);
   }
 
-  async handleWhatsAppWait() {
-    await handleWhatsAppWaitInternal(this);
+  async handleWhatsAppWait(accountId?: string) {
+    await handleWhatsAppWaitInternal(this, accountId);
   }
 
-  async handleWhatsAppLogout() {
-    await handleWhatsAppLogoutInternal(this);
+  async handleWhatsAppLogout(accountId?: string) {
+    await handleWhatsAppLogoutInternal(this, accountId);
+  }
+
+  async handleLoadSkills() {
+    return loadSkills(this);
+  }
+
+  async handleLoadSOPs() {
+    return loadSOPs(this);
+  }
+
+  async handleLoadSOPStatus() {
+    return loadSOPStatus(this);
+  }
+
+  async handleLoadSOPHistory(name: string) {
+    return loadSOPHistory(this, name);
+  }
+
+  async handleLoadSitePool() {
+    return loadSitePoolAccounts(this);
+  }
+
+  async handleCreateSitePoolAccount() {
+    return createSitePoolAccount(this);
+  }
+
+  async handleCheckSitePoolAccount(id: string) {
+    return checkSitePoolAccount(this, id);
+  }
+
+  async handleReauthSitePoolAccount(id: string) {
+    return reauthSitePoolAccount(this, id);
+  }
+
+  async handleUpdateSitePoolPolicy(id: string, keepalivePolicy: SitePoolKeepalivePolicy) {
+    return updateSitePoolPolicy(this, { id, keepalivePolicy });
+  }
+
+  async handleLoadSitePoolQr(id: string) {
+    return loadSitePoolQr(this, id);
+  }
+
+  async handleLoadSitePoolEvents(id: string) {
+    return loadSitePoolEvents(this, id, 20);
+  }
+
+  async handleRunSOP(name: string) {
+    return runSOP(this, name);
+  }
+
+  async handleCreateSOP() {
+    const { name, description, steps, schedule } = this.sopsCreateForm;
+    const stepsArray = steps
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    await createSOP(this, {
+      name,
+      description,
+      steps: stepsArray,
+      schedule: schedule || undefined,
+    });
+    this.sopsShowCreate = false;
+    this.sopsCreateForm = { name: "", description: "", steps: "", schedule: "" };
   }
 
   async handleChannelConfigSave() {

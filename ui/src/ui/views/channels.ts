@@ -102,12 +102,22 @@ function resolveChannelOrder(snapshot: ChannelsStatusSnapshot | null): ChannelKe
 function renderChannel(key: ChannelKey, props: ChannelsProps, data: ChannelsChannelData) {
   const accountCountLabel = renderChannelAccountCount(key, data.channelAccounts);
   switch (key) {
-    case "whatsapp":
+    case "whatsapp": {
+      const whatsappAccounts = data.channelAccounts?.whatsapp ?? [];
+      const whatsappDefaultAccountId = props.snapshot?.channelDefaultAccountId?.whatsapp ?? "default";
+      const whatsappSelectedAccountId =
+        props.whatsappAccountId ??
+        whatsappDefaultAccountId ??
+        whatsappAccounts[0]?.accountId ??
+        "default";
       return renderWhatsAppCard({
         props,
         whatsapp: data.whatsapp,
+        whatsappAccounts,
+        selectedAccountId: whatsappSelectedAccountId,
         accountCountLabel,
       });
+    }
     case "telegram":
       return renderTelegramCard({
         props,

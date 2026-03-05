@@ -191,6 +191,9 @@ export async function refreshActiveTab(host: SettingsHost) {
   if (host.tab === "sessions") {
     await loadSessions(host as unknown as OpenClawApp);
   }
+  if (host.tab === "sites") {
+    await (host as unknown as OpenClawApp).handleLoadSitePool();
+  }
   if (host.tab === "cron") {
     await loadCron(host);
   }

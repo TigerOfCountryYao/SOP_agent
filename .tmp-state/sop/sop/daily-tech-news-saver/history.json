@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "runs": [
+    {
+      "sopName": "daily-tech-news-saver",
+      "runId": "96446b1e-3e23-460e-bd90-75ff70ed04c2",
+      "startedAt": 1771761250704,
+      "finishedAt": 1771761262318,
+      "status": "error",
+      "error": "Can't reach the OpenClaw browser control service. If this is a sandboxed session, ensure the sandbox browser is running. Do NOT retry the browser tool — it will keep failing. Use an alternative approach or inform the user that the browser is currently unavailable. (TypeError: fetch failed)",
+      "steps": [
+        {
+          "action": "browser.open",
+          "params": {
+            "url": "https://news.ycombinator.com/"
+          },
+          "startedAt": 1771761262261,
+          "finishedAt": 1771761262318,
+          "status": "error",
+          "error": "Can't reach the OpenClaw browser control service. If this is a sandboxed session, ensure the sandbox browser is running. Do NOT retry the browser tool — it will keep failing. Use an alternative approach or inform the user that the browser is currently unavailable. (TypeError: fetch failed)"
+        }
+      ],
+      "trigger": "manual"
+    }
+  ]
+}

@@ -9,18 +9,18 @@ import {
 import { loadConfig, saveConfig } from "./controllers/config.ts";
 import { createNostrProfileFormState } from "./views/channels.nostr-profile-form.ts";
 
-export async function handleWhatsAppStart(host: OpenClawApp, force: boolean) {
-  await startWhatsAppLogin(host, force);
+export async function handleWhatsAppStart(host: OpenClawApp, force: boolean, accountId?: string) {
+  await startWhatsAppLogin(host, force, accountId);
   await loadChannels(host, true);
 }
 
-export async function handleWhatsAppWait(host: OpenClawApp) {
-  await waitWhatsAppLogin(host);
+export async function handleWhatsAppWait(host: OpenClawApp, accountId?: string) {
+  await waitWhatsAppLogin(host, accountId);
   await loadChannels(host, true);
 }
 
-export async function handleWhatsAppLogout(host: OpenClawApp) {
-  await logoutWhatsApp(host);
+export async function handleWhatsAppLogout(host: OpenClawApp, accountId?: string) {
+  await logoutWhatsApp(host, accountId);
   await loadChannels(host, true);
 }
 

@@ -4,6 +4,14 @@ import type { DevicePairingList } from "./controllers/devices.ts";
 import type { ExecApprovalRequest } from "./controllers/exec-approval.ts";
 import type { ExecApprovalsFile, ExecApprovalsSnapshot } from "./controllers/exec-approvals.ts";
 import type { SkillMessage } from "./controllers/skills.ts";
+import type {
+  SOPListResult,
+  SOPRunResult,
+  SOPStatusResult,
+  SOPHistoryResult,
+  SOPCreateResult,
+  SOPsViewPanel,
+} from "./controllers/sops.ts";
 import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway.ts";
 import type { Tab } from "./navigation.ts";
 import type { UiSettings } from "./storage.ts";
@@ -28,6 +36,11 @@ import type {
   CostUsageSummary,
   SessionUsageTimeSeries,
   SessionsListResult,
+  SitePoolAccount,
+  SitePoolEvent,
+  SitePoolQrTask,
+  SitePoolKeepalivePolicy,
+  SitePoolLoginType,
   SkillStatusReport,
   StatusSummary,
 } from "./types.ts";
@@ -112,6 +125,7 @@ export type AppViewState = {
   channelsSnapshot: ChannelsStatusSnapshot | null;
   channelsError: string | null;
   channelsLastSuccess: number | null;
+  whatsappAccountId: string | null;
   whatsappLoginMessage: string | null;
   whatsappLoginQrDataUrl: string | null;
   whatsappLoginConnected: boolean | null;
@@ -149,6 +163,22 @@ export type AppViewState = {
   sessionsFilterLimit: string;
   sessionsIncludeGlobal: boolean;
   sessionsIncludeUnknown: boolean;
+  sitePoolLoading: boolean;
+  sitePoolBusy: boolean;
+  sitePoolError: string | null;
+  sitePoolAccounts: SitePoolAccount[];
+  sitePoolEventsById: Record<string, SitePoolEvent[]>;
+  sitePoolQrById: Record<string, SitePoolQrTask | null>;
+  sitePoolCreateForm: {
+    siteKey: string;
+    displayName: string;
+    browserProfile: string;
+    loginType: SitePoolLoginType;
+    keepalivePolicy: SitePoolKeepalivePolicy;
+    keepaliveUntil: string;
+    notifyOnExpire: boolean;
+    notifyOnQrRequired: boolean;
+  };
   usageLoading: boolean;
   usageResult: SessionsUsageResult | null;
   usageCostSummary: CostUsageSummary | null;
@@ -197,6 +227,17 @@ export type AppViewState = {
   skillEdits: Record<string, string>;
   skillMessages: Record<string, SkillMessage>;
   skillsBusyKey: string | null;
+  sopsLoading: boolean;
+  sopsList: SOPListResult | null;
+  sopsError: string | null;
+  sopsRunning: string | null;
+  sopsRunResult: SOPRunResult | null;
+  sopsHistory: SOPHistoryResult | null;
+  sopsHistoryName: string;
+  sopsStatus: SOPStatusResult | null;
+  sopsCreateForm: { name: string; description: string; steps: string; schedule: string };
+  sopsShowCreate: boolean;
+  sopsPanel: SOPsViewPanel;
   debugLoading: boolean;
   debugStatus: StatusSummary | null;
   debugHealth: HealthSnapshot | null;
@@ -228,9 +269,9 @@ export type AppViewState = {
   loadOverview: () => Promise<void>;
   loadAssistantIdentity: () => Promise<void>;
   loadCron: () => Promise<void>;
-  handleWhatsAppStart: (force: boolean) => Promise<void>;
-  handleWhatsAppWait: () => Promise<void>;
-  handleWhatsAppLogout: () => Promise<void>;
+  handleWhatsAppStart: (force: boolean, accountId?: string) => Promise<void>;
+  handleWhatsAppWait: (accountId?: string) => Promise<void>;
+  handleWhatsAppLogout: (accountId?: string) => Promise<void>;
   handleChannelConfigSave: () => Promise<void>;
   handleChannelConfigReload: () => Promise<void>;
   handleNostrProfileEdit: (accountId: string, profile: NostrProfile | null) => void;
@@ -264,6 +305,21 @@ export type AppViewState = {
   handleLoadNodes: () => Promise<void>;
   handleLoadPresence: () => Promise<void>;
   handleLoadSkills: () => Promise<void>;
+  handleLoadSOPs: () => Promise<void>;
+  handleLoadSOPStatus: () => Promise<void>;
+  handleLoadSOPHistory: (name: string) => Promise<void>;
+  handleRunSOP: (name: string) => Promise<void>;
+  handleCreateSOP: () => Promise<void>;
+  handleLoadSitePool: () => Promise<void>;
+  handleCreateSitePoolAccount: () => Promise<void>;
+  handleCheckSitePoolAccount: (id: string) => Promise<void>;
+  handleReauthSitePoolAccount: (id: string) => Promise<void>;
+  handleUpdateSitePoolPolicy: (
+    id: string,
+    keepalivePolicy: SitePoolKeepalivePolicy,
+  ) => Promise<void>;
+  handleLoadSitePoolQr: (id: string) => Promise<void>;
+  handleLoadSitePoolEvents: (id: string) => Promise<void>;
   handleLoadDebug: () => Promise<void>;
   handleLoadLogs: () => Promise<void>;
   handleDebugCall: () => Promise<void>;
