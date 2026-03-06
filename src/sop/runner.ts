@@ -3,6 +3,7 @@ import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SOPContext, SOPDefinition, SOPEntry, SOPRunRecord } from "./types.js";
+import { resolveOpenClawPackageRootSync } from "../infra/openclaw-root.js";
 import { SOPAbortError } from "./types.js";
 import { SOPLogger } from "./logger.js";
 import { setActiveLogger } from "./sdk.js";
@@ -10,6 +11,27 @@ import { appendRunRecord, loadSOPKVStore, resolveSOPDataDir } from "./store.js";
 
 const SOP_FILE_NAME = "sop.ts";
 const SOP_MD_NAME = "SOP.md";
+
+function resolveSOPSdkAliasPath(): string {
+  const repoRoot = resolveOpenClawPackageRootSync({
+    moduleUrl: import.meta.url,
+    argv1: process.argv[1],
+    cwd: process.cwd(),
+  });
+  const candidates = [
+    repoRoot ? nodePath.join(repoRoot, "src", "sop", "index.ts") : null,
+    fileURLToPath(new URL("./index.ts", import.meta.url)),
+    fileURLToPath(new URL("./index.js", import.meta.url)),
+  ].filter((value): value is string => Boolean(value));
+
+  for (const candidate of candidates) {
+    if (nodeFs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return candidates[0] ?? fileURLToPath(new URL("./index.ts", import.meta.url));
+}
 
 export async function discoverSOPs(sopsDir: string): Promise<SOPEntry[]> {
   const resolvedDir = nodePath.resolve(sopsDir);
@@ -67,7 +89,7 @@ export async function discoverSOPs(sopsDir: string): Promise<SOPEntry[]> {
 
 export async function loadSOP(filePath: string): Promise<SOPDefinition> {
   const absPath = nodePath.resolve(filePath);
-  const sopSdkPath = fileURLToPath(new URL("./index.js", import.meta.url));
+  const sopSdkPath = resolveSOPSdkAliasPath();
   const { createJiti } = await import("jiti");
   const jiti = createJiti(absPath, {
     interopDefault: true,

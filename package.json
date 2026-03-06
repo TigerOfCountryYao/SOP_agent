@@ -36,10 +36,6 @@
   "main": "dist/index.js",
   "exports": {
     ".": "./dist/index.js",
-    "./sop": {
-      "types": "./dist/sop/index.d.ts",
-      "default": "./dist/sop/index.js"
-    },
     "./plugin-sdk": {
       "types": "./dist/plugin-sdk/index.d.ts",
       "default": "./dist/plugin-sdk/index.js"
