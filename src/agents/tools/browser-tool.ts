@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
 import {
   browserAct,
   browserArmDialog,
@@ -25,6 +27,7 @@ import { DEFAULT_UPLOAD_DIR, resolvePathsWithinRoot } from "../../browser/paths.
 import { applyBrowserProxyPaths, persistBrowserProxyFiles } from "../../browser/proxy-files.js";
 import { loadConfig } from "../../config/config.js";
 import { wrapExternalContent } from "../../security/external-content.js";
+import { applySitePoolReauthOutcome, getSitePoolAccountById } from "../../site-pool/store.js";
 import { BrowserToolSchema } from "./browser-tool.schema.js";
 import { type AnyAgentTool, imageResultFromFile, jsonResult, readStringParam } from "./common.js";
 import { callGatewayTool } from "./gateway.js";
@@ -65,7 +68,8 @@ type BrowserProxyResult = {
   files?: BrowserProxyFile[];
 };
 
-const DEFAULT_BROWSER_PROXY_TIMEOUT_MS = 20_000;
+const DEFAULT_BROWSER_PROXY_TIMEOUT_MS = 60_000;
+const DEFAULT_BROWSER_TOOL_PROFILE = "openclaw";
 
 type BrowserNodeTarget = {
   nodeId: string;
@@ -218,6 +222,165 @@ function resolveBrowserBaseUrl(params: {
   return undefined;
 }
 
+function readTargetIdHint(action: string, params: Record<string, unknown>): string | undefined {
+  const direct = readStringParam(params, "targetId");
+  if (direct) {
+    return direct;
+  }
+  if (action !== "act") {
+    return undefined;
+  }
+  const request = params.request;
+  if (!request || typeof request !== "object") {
+    return undefined;
+  }
+  const raw = (request as { targetId?: unknown }).targetId;
+  return typeof raw === "string" ? raw.trim() || undefined : undefined;
+}
+
+function listProfileNames(payload: unknown): string[] {
+  const rows =
+    payload &&
+    typeof payload === "object" &&
+    Array.isArray((payload as { profiles?: unknown[] }).profiles)
+      ? ((payload as { profiles: unknown[] }).profiles ?? [])
+      : [];
+  return rows
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return "";
+      }
+      const name = (entry as { name?: unknown }).name;
+      return typeof name === "string" ? name.trim() : "";
+    })
+    .filter(Boolean);
+}
+
+function listTabTargetIds(payload: unknown): string[] {
+  const rows =
+    payload && typeof payload === "object" && Array.isArray((payload as { tabs?: unknown[] }).tabs)
+      ? ((payload as { tabs: unknown[] }).tabs ?? [])
+      : [];
+  return rows
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return "";
+      }
+      const targetId = (entry as { targetId?: unknown }).targetId;
+      return typeof targetId === "string" ? targetId.trim() : "";
+    })
+    .filter(Boolean);
+}
+
+function hasTargetIdMatch(targetId: string, candidates: string[]): boolean {
+  if (candidates.includes(targetId)) {
+    return true;
+  }
+  const prefixMatches = candidates.filter((entry) => entry.startsWith(targetId));
+  return prefixMatches.length === 1;
+}
+
+function normalizeToolTimeoutMs(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+  return Math.max(1_000, Math.min(180_000, Math.floor(value)));
+}
+
+function deriveActTimeoutMs(
+  request: Record<string, unknown>,
+  fallbackTimeoutMs?: number,
+): number | undefined {
+  const explicit = normalizeToolTimeoutMs((request as { timeoutMs?: unknown }).timeoutMs);
+  if (explicit !== undefined) {
+    return explicit;
+  }
+  const isWait = (request as { kind?: unknown }).kind === "wait";
+  if (isWait) {
+    const waitMs = normalizeToolTimeoutMs((request as { timeMs?: unknown }).timeMs);
+    if (waitMs !== undefined) {
+      return Math.max(waitMs, 20_000);
+    }
+  }
+  return fallbackTimeoutMs;
+}
+
+function inferImageMimeType(
+  filePath: string,
+  typeHint?: "png" | "jpeg",
+): "image/png" | "image/jpeg" {
+  if (typeHint === "jpeg") {
+    return "image/jpeg";
+  }
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".jpg" || ext === ".jpeg") {
+    return "image/jpeg";
+  }
+  return "image/png";
+}
+
+async function persistQrCaptureToSitePool(params: {
+  siteAccountId: string;
+  imagePath: string;
+  imageType?: "png" | "jpeg";
+  details?: Record<string, unknown>;
+}) {
+  const siteAccountId = params.siteAccountId.trim();
+  if (!siteAccountId) {
+    throw new Error("siteAccountId is required when qrCapture=true");
+  }
+  const account = await getSitePoolAccountById(siteAccountId);
+  if (!account) {
+    throw new Error(`site-pool account not found: ${siteAccountId}`);
+  }
+  const bytes = await fs.readFile(params.imagePath);
+  const mime = inferImageMimeType(params.imagePath, params.imageType);
+  const qrDataUrl = `data:${mime};base64,${bytes.toString("base64")}`;
+  const saved = await applySitePoolReauthOutcome({
+    id: siteAccountId,
+    outcome: {
+      status: "reauth_required",
+      qrDataUrl,
+      details: params.details,
+    },
+  });
+  if (!saved) {
+    throw new Error(`failed to persist QR for site account: ${siteAccountId}`);
+  }
+  return {
+    siteAccountId,
+    qrTaskId: saved.qrTask?.id ?? null,
+  };
+}
+
+async function resolveProfileFromTargetId(params: {
+  requestedProfile?: string;
+  targetIdHint?: string;
+  listProfiles: () => Promise<string[]>;
+  listTargetIds: (profile: string) => Promise<string[]>;
+}): Promise<string | undefined> {
+  if (params.requestedProfile) {
+    return params.requestedProfile;
+  }
+  const targetId = params.targetIdHint?.trim() ?? "";
+  if (!targetId) {
+    return undefined;
+  }
+  const profileNames = await params.listProfiles().catch(() => []);
+  let matchedProfile: string | undefined;
+  for (const profile of profileNames) {
+    const targetIds = await params.listTargetIds(profile).catch(() => []);
+    if (!targetIds.length || !hasTargetIdMatch(targetId, targetIds)) {
+      continue;
+    }
+    if (matchedProfile && matchedProfile !== profile) {
+      return undefined;
+    }
+    matchedProfile = profile;
+  }
+  return matchedProfile;
+}
+
 export function createBrowserTool(opts?: {
   sandboxBridgeUrl?: string;
   allowHostControl?: boolean;
@@ -230,10 +393,12 @@ export function createBrowserTool(opts?: {
     name: "browser",
     description: [
       "Control the browser via OpenClaw's browser control server (status/start/stop/profiles/tabs/open/snapshot/screenshot/actions).",
-      'Profiles: use profile="chrome" for Chrome extension relay takeover (your existing Chrome tabs). Use profile="openclaw" for the isolated openclaw-managed browser.',
+      'Profiles: default is profile="openclaw" (recommended main flow). Use profile="chrome" only for Chrome extension relay takeover (your existing Chrome tabs).',
       'If the user mentions the Chrome extension / Browser Relay / toolbar button / “attach tab”, ALWAYS use profile="chrome" (do not ask which profile).',
       'When a node-hosted browser proxy is available, the tool may auto-route to it. Pin a node with node=<id|name> or target="node".',
       "Chrome extension relay needs an attached tab: user must click the OpenClaw Browser Relay toolbar icon on the tab (badge ON). If no tab is connected, ask them to attach it.",
+      "If a site requires login and shows a QR code, prefer login-pool flow: capture QR and persist it to site-pool (siteAccountId + qrCapture=true). Do not expose QR images directly unless explicitly requested. If login is optional for the task, close the login popup and continue.",
+      "After actions that can re-render the page (closing popups, tab switches, route changes), run snapshot again before using refs for the next action.",
       "When using refs from snapshot (e.g. e12), keep the same tab: prefer passing targetId from the snapshot response into subsequent actions (act/click/type/etc).",
       'For stable, self-resolving refs across calls, use snapshot with refs="aria" (Playwright aria-ref ids). Default refs="role" are role+name-based.',
       "Use snapshot+act for UI automation. Avoid act:wait by default; use only in exceptional cases when no reliable UI state exists.",
@@ -244,7 +409,8 @@ export function createBrowserTool(opts?: {
     execute: async (_toolCallId, args) => {
       const params = args as Record<string, unknown>;
       const action = readStringParam(params, "action", { required: true });
-      const profile = readStringParam(params, "profile");
+      const toolTimeoutMs = normalizeToolTimeoutMs(params.timeoutMs);
+      let profile = readStringParam(params, "profile");
       const requestedNode = readStringParam(params, "node");
       let target = readStringParam(params, "target") as "sandbox" | "host" | "node" | undefined;
 
@@ -295,6 +461,34 @@ export function createBrowserTool(opts?: {
             return proxy.result;
           }
         : null;
+      profile = await resolveProfileFromTargetId({
+        requestedProfile: profile,
+        targetIdHint: readTargetIdHint(action, params),
+        listProfiles: async () => {
+          if (proxyRequest) {
+            const result = await proxyRequest({
+              method: "GET",
+              path: "/profiles",
+            });
+            return listProfileNames(result);
+          }
+          const profiles = await browserProfiles(baseUrl);
+          return profiles.map((entry) => entry.name);
+        },
+        listTargetIds: async (candidateProfile) => {
+          if (proxyRequest) {
+            const result = await proxyRequest({
+              method: "GET",
+              path: "/tabs",
+              profile: candidateProfile,
+            });
+            return listTabTargetIds(result);
+          }
+          const tabs = await browserTabs(baseUrl, { profile: candidateProfile });
+          return tabs.map((entry) => entry.targetId).filter(Boolean);
+        },
+      });
+      profile ??= DEFAULT_BROWSER_TOOL_PROFILE;
 
       switch (action) {
         case "status":
@@ -390,11 +584,14 @@ export function createBrowserTool(opts?: {
               method: "POST",
               path: "/tabs/open",
               profile,
+              timeoutMs: toolTimeoutMs,
               body: { url: targetUrl },
             });
             return jsonResult(result);
           }
-          return jsonResult(await browserOpenTab(baseUrl, targetUrl, { profile }));
+          return jsonResult(
+            await browserOpenTab(baseUrl, targetUrl, { profile, timeoutMs: toolTimeoutMs }),
+          );
         }
         case "focus": {
           const targetId = readStringParam(params, "targetId", {
@@ -405,6 +602,7 @@ export function createBrowserTool(opts?: {
               method: "POST",
               path: "/tabs/focus",
               profile,
+              timeoutMs: toolTimeoutMs,
               body: { targetId },
             });
             return jsonResult(result);
@@ -420,11 +618,13 @@ export function createBrowserTool(opts?: {
                   method: "DELETE",
                   path: `/tabs/${encodeURIComponent(targetId)}`,
                   profile,
+                  timeoutMs: toolTimeoutMs,
                 })
               : await proxyRequest({
                   method: "POST",
                   path: "/act",
                   profile,
+                  timeoutMs: toolTimeoutMs,
                   body: { kind: "close" },
                 });
             return jsonResult(result);
@@ -484,6 +684,7 @@ export function createBrowserTool(opts?: {
                 method: "GET",
                 path: "/snapshot",
                 profile,
+                timeoutMs: toolTimeoutMs,
                 query: {
                   format,
                   targetId,
@@ -513,6 +714,7 @@ export function createBrowserTool(opts?: {
                 labels,
                 mode,
                 profile,
+                timeoutMs: toolTimeoutMs,
               });
           if (snapshot.format === "ai") {
             const extractedText = snapshot.snapshot ?? "";
@@ -584,11 +786,19 @@ export function createBrowserTool(opts?: {
           const ref = readStringParam(params, "ref");
           const element = readStringParam(params, "element");
           const type = params.type === "jpeg" ? "jpeg" : "png";
+          const qrCapture = Boolean(params.qrCapture);
+          const siteAccountId = readStringParam(params, "siteAccountId");
+          const exposeImage =
+            typeof params.exposeImage === "boolean" ? params.exposeImage : !qrCapture;
+          if (qrCapture && !siteAccountId) {
+            throw new Error("siteAccountId is required when qrCapture=true");
+          }
           const result = proxyRequest
             ? ((await proxyRequest({
                 method: "POST",
                 path: "/screenshot",
                 profile,
+                timeoutMs: toolTimeoutMs,
                 body: {
                   targetId,
                   fullPage,
@@ -604,12 +814,51 @@ export function createBrowserTool(opts?: {
                 element,
                 type,
                 profile,
+                timeoutMs: toolTimeoutMs,
               });
-          return await imageResultFromFile({
+          const sitePool =
+            qrCapture && siteAccountId
+              ? await persistQrCaptureToSitePool({
+                  siteAccountId,
+                  imagePath: result.path,
+                  imageType: type,
+                  details: {
+                    source: "browser-tool.screenshot",
+                    targetId: result.targetId,
+                    url: result.url,
+                  },
+                })
+              : undefined;
+          if (!exposeImage) {
+            return jsonResult({
+              ok: true,
+              targetId: result.targetId,
+              url: result.url,
+              path: result.path,
+              imageStored: true,
+              imageExposed: false,
+              sitePool,
+            });
+          }
+          const image = await imageResultFromFile({
             label: "browser:screenshot",
             path: result.path,
             details: result,
           });
+          if (!sitePool) {
+            return image;
+          }
+          const baseDetails =
+            image.details && typeof image.details === "object"
+              ? (image.details as Record<string, unknown>)
+              : {};
+          return {
+            ...image,
+            details: {
+              ...baseDetails,
+              sitePool,
+            },
+          };
         }
         case "navigate": {
           const targetUrl = readStringParam(params, "targetUrl", {
@@ -621,6 +870,7 @@ export function createBrowserTool(opts?: {
               method: "POST",
               path: "/navigate",
               profile,
+              timeoutMs: toolTimeoutMs,
               body: {
                 url: targetUrl,
                 targetId,
@@ -633,6 +883,7 @@ export function createBrowserTool(opts?: {
               url: targetUrl,
               targetId,
               profile,
+              timeoutMs: toolTimeoutMs,
             }),
           );
         }
@@ -783,14 +1034,21 @@ export function createBrowserTool(opts?: {
             throw new Error("request required");
           }
           try {
+            const actTimeoutMs = deriveActTimeoutMs(request, toolTimeoutMs);
+            const actRequest =
+              actTimeoutMs !== undefined &&
+              typeof (request as { timeoutMs?: unknown }).timeoutMs !== "number"
+                ? { ...request, timeoutMs: actTimeoutMs }
+                : request;
             const result = proxyRequest
               ? await proxyRequest({
                   method: "POST",
                   path: "/act",
                   profile,
-                  body: request,
+                  timeoutMs: actTimeoutMs,
+                  body: actRequest,
                 })
-              : await browserAct(baseUrl, request as Parameters<typeof browserAct>[1], {
+              : await browserAct(baseUrl, actRequest as Parameters<typeof browserAct>[1], {
                   profile,
                 });
             return jsonResult(result);

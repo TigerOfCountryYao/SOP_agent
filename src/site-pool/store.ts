@@ -23,6 +23,32 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function normalizeBrowserProfileName(value: string | undefined): string | undefined {
+  const next = value?.trim();
+  return next ? next : undefined;
+}
+
+function assertBrowserProfileIsolated(
+  store: SitePoolStoreFile,
+  browserProfile: string | undefined,
+  exceptAccountId?: string,
+) {
+  const normalized = normalizeBrowserProfileName(browserProfile);
+  if (!normalized) {
+    return;
+  }
+  const occupied = store.accounts.find(
+    (entry) =>
+      entry.id !== exceptAccountId &&
+      normalizeBrowserProfileName(entry.browserProfile) === normalized,
+  );
+  if (occupied) {
+    throw new Error(
+      `browserProfile "${normalized}" is already used by site account ${occupied.id} (${occupied.siteKey}/${occupied.displayName}); use a dedicated profile per account`,
+    );
+  }
+}
+
 function normalizeStore(value: unknown): SitePoolStoreFile {
   const record =
     value && typeof value === "object" && !Array.isArray(value)
@@ -83,12 +109,14 @@ export async function createSitePoolAccount(
 ): Promise<SitePoolAccount> {
   let created: SitePoolAccount | null = null;
   await updateSitePoolStore(storePath, (store) => {
+    const browserProfile = normalizeBrowserProfileName(input.browserProfile);
+    assertBrowserProfileIsolated(store, browserProfile);
     const now = nowIso();
     created = {
       id: randomUUID(),
       siteKey: input.siteKey,
       displayName: input.displayName,
-      browserProfile: input.browserProfile,
+      browserProfile,
       loginType: input.loginType,
       status: "unknown",
       keepalivePolicy: input.keepalivePolicy,
@@ -124,7 +152,9 @@ export async function updateSitePoolPolicy(
       return;
     }
     if (input.browserProfile !== undefined) {
-      account.browserProfile = input.browserProfile;
+      const browserProfile = normalizeBrowserProfileName(input.browserProfile);
+      assertBrowserProfileIsolated(store, browserProfile, account.id);
+      account.browserProfile = browserProfile;
     }
     account.keepalivePolicy = input.keepalivePolicy;
     account.keepaliveUntil = input.keepaliveUntil;
@@ -375,10 +405,13 @@ async function updateSitePoolStore(
   storePath: string,
   mutate: (store: SitePoolStoreFile) => void,
 ): Promise<void> {
-  updateChain = updateChain.then(async () => {
+  const run = async () => {
     const store = await readStore(storePath);
     mutate(store);
     await writeStore(storePath, store);
-  });
-  await updateChain;
+  };
+  const next = updateChain.then(run, run);
+  // Keep the shared chain alive even if one update fails.
+  updateChain = next.catch(() => {});
+  await next;
 }

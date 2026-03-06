@@ -1,10 +1,21 @@
-﻿import type { Locator, Page } from "playwright-core";
+import type { Locator, Page } from "playwright-core";
 import type { SitePoolAccount, SitePoolStatus } from "./types.js";
 import {
   learnSiteHealthScript,
   loadSiteHealthScript,
   type SitePoolHealthScript,
 } from "./scripts.js";
+
+const DEFAULT_SITE_POOL_NAV_TIMEOUT_MS = 60_000;
+const DEFAULT_SITE_POOL_SETTLE_WAIT_MS = 1_500;
+
+function readEnvTimeoutMs(name: string, fallback: number, min: number, max: number): number {
+  const raw = Number(process.env[name]);
+  if (!Number.isFinite(raw)) {
+    return fallback;
+  }
+  return Math.max(min, Math.min(max, Math.floor(raw)));
+}
 
 type SitePoolCheckOutcome = {
   status: SitePoolStatus;
@@ -52,11 +63,23 @@ async function evaluateSiteScript(
 ): Promise<SitePoolCheckOutcome> {
   const script = await loadSiteHealthScript(account);
   const target = resolveTargetUrl(account, script);
+  const navTimeoutMs = readEnvTimeoutMs(
+    "OPENCLAW_SITEPOOL_NAV_TIMEOUT_MS",
+    DEFAULT_SITE_POOL_NAV_TIMEOUT_MS,
+    5_000,
+    180_000,
+  );
+  const settleWaitMs = readEnvTimeoutMs(
+    "OPENCLAW_SITEPOOL_SETTLE_WAIT_MS",
+    DEFAULT_SITE_POOL_SETTLE_WAIT_MS,
+    0,
+    30_000,
+  );
   await page.goto(target, {
     waitUntil: "domcontentloaded",
-    timeout: 30_000,
+    timeout: navTimeoutMs,
   });
-  await page.waitForTimeout(900);
+  await page.waitForTimeout(settleWaitMs);
 
   const loggedIn = await firstVisibleSelector(page, script.loggedInSelectors);
   if (loggedIn) {
@@ -141,7 +164,10 @@ function resolveTargetUrl(account: SitePoolAccount, script: SitePoolHealthScript
   return `https://${raw}`;
 }
 
-async function firstVisibleSelector(page: Page, selectors: string[]): Promise<SelectorMatch | null> {
+async function firstVisibleSelector(
+  page: Page,
+  selectors: string[],
+): Promise<SelectorMatch | null> {
   for (const frame of page.frames()) {
     for (const selector of selectors) {
       const normalized = selector.trim();

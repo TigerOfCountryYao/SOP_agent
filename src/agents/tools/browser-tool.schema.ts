@@ -109,4 +109,7 @@ export const BrowserToolSchema = Type.Object({
   accept: Type.Optional(Type.Boolean()),
   promptText: Type.Optional(Type.String()),
   request: Type.Optional(BrowserActSchema),
+  siteAccountId: Type.Optional(Type.String()),
+  qrCapture: Type.Optional(Type.Boolean()),
+  exposeImage: Type.Optional(Type.Boolean()),
 });

@@ -216,7 +216,7 @@ describe("browser tool snapshot maxChars", () => {
 
     expect(gatewayMocks.callGatewayTool).toHaveBeenCalledWith(
       "node.invoke",
-      { timeoutMs: 20000 },
+      { timeoutMs: 60000 },
       expect.objectContaining({
         nodeId: "node-1",
         command: "browser.proxy",
@@ -240,7 +240,7 @@ describe("browser tool snapshot maxChars", () => {
 
     expect(browserClientMocks.browserStatus).toHaveBeenCalledWith(
       "http://127.0.0.1:9999",
-      expect.objectContaining({ profile: undefined }),
+      expect.objectContaining({ profile: "openclaw" }),
     );
     expect(gatewayMocks.callGatewayTool).not.toHaveBeenCalled();
   });
@@ -263,6 +263,142 @@ describe("browser tool snapshot maxChars", () => {
       expect.objectContaining({ profile: "chrome" }),
     );
     expect(gatewayMocks.callGatewayTool).not.toHaveBeenCalled();
+  });
+
+  it("infers profile from targetId for screenshot when profile is omitted", async () => {
+    browserClientMocks.browserProfiles.mockResolvedValueOnce([
+      {
+        name: "chrome",
+        cdpPort: 18792,
+        cdpUrl: "http://127.0.0.1:18792",
+        color: "#00AA00",
+        running: false,
+        tabCount: 0,
+        isDefault: true,
+        isRemote: false,
+      },
+      {
+        name: "openclaw",
+        cdpPort: 18800,
+        cdpUrl: "http://127.0.0.1:18800",
+        color: "#3399FF",
+        running: true,
+        tabCount: 1,
+        isDefault: false,
+        isRemote: false,
+      },
+    ]);
+    browserClientMocks.browserTabs.mockImplementation(async (_baseUrl, opts) => {
+      if (opts?.profile === "openclaw") {
+        return [
+          {
+            targetId: "B871F89944C5CEE8D6554FD94597F499",
+            title: "xhs",
+            url: "https://www.xiaohongshu.com/",
+          },
+        ];
+      }
+      return [];
+    });
+    toolCommonMocks.imageResultFromFile.mockResolvedValueOnce({
+      content: [{ type: "image", data: "base64", mimeType: "image/png" }],
+      details: { ok: true },
+    });
+
+    const tool = createBrowserTool();
+    await tool.execute?.(null, {
+      action: "screenshot",
+      targetId: "B871F89944C5CEE8D6554FD94597F499",
+    });
+
+    expect(browserActionsMocks.browserScreenshotAction).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({
+        targetId: "B871F89944C5CEE8D6554FD94597F499",
+        profile: "openclaw",
+      }),
+    );
+  });
+
+  it("infers profile from request.targetId for act when profile is omitted", async () => {
+    browserClientMocks.browserProfiles.mockResolvedValueOnce([
+      {
+        name: "chrome",
+        cdpPort: 18792,
+        cdpUrl: "http://127.0.0.1:18792",
+        color: "#00AA00",
+        running: false,
+        tabCount: 0,
+        isDefault: true,
+        isRemote: false,
+      },
+      {
+        name: "openclaw",
+        cdpPort: 18800,
+        cdpUrl: "http://127.0.0.1:18800",
+        color: "#3399FF",
+        running: true,
+        tabCount: 1,
+        isDefault: false,
+        isRemote: false,
+      },
+    ]);
+    browserClientMocks.browserTabs.mockImplementation(async (_baseUrl, opts) => {
+      if (opts?.profile === "openclaw") {
+        return [
+          {
+            targetId: "A_TARGET",
+            title: "xhs",
+            url: "https://www.xiaohongshu.com/",
+          },
+        ];
+      }
+      return [];
+    });
+
+    const tool = createBrowserTool();
+    await tool.execute?.(null, {
+      action: "act",
+      request: {
+        kind: "click",
+        targetId: "A_TARGET",
+        ref: "e1",
+      },
+    });
+
+    expect(browserActionsMocks.browserAct).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({
+        kind: "click",
+        targetId: "A_TARGET",
+      }),
+      expect.objectContaining({
+        profile: "openclaw",
+      }),
+    );
+  });
+
+  it("keeps explicit profile and skips targetId inference lookup", async () => {
+    toolCommonMocks.imageResultFromFile.mockResolvedValueOnce({
+      content: [{ type: "image", data: "base64", mimeType: "image/png" }],
+      details: { ok: true },
+    });
+
+    const tool = createBrowserTool();
+    await tool.execute?.(null, {
+      action: "screenshot",
+      profile: "chrome",
+      targetId: "B871F89944C5CEE8D6554FD94597F499",
+    });
+
+    expect(browserClientMocks.browserProfiles).not.toHaveBeenCalled();
+    expect(browserClientMocks.browserTabs).not.toHaveBeenCalled();
+    expect(browserActionsMocks.browserScreenshotAction).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({
+        profile: "chrome",
+      }),
+    );
   });
 });
 

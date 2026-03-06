@@ -6,6 +6,38 @@ import type {
 import { buildProfileQuery, withBaseUrl } from "./client-actions-url.js";
 import { fetchBrowserJson } from "./client-fetch.js";
 
+const MIN_REQUEST_TIMEOUT_MS = 20_000;
+const MAX_REQUEST_TIMEOUT_MS = 180_000;
+const REQUEST_TIMEOUT_HEADROOM_MS = 10_000;
+
+function resolveRequestTimeoutMs(timeoutMs?: number) {
+  if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs)) {
+    return MIN_REQUEST_TIMEOUT_MS;
+  }
+  return Math.max(
+    MIN_REQUEST_TIMEOUT_MS,
+    Math.min(MAX_REQUEST_TIMEOUT_MS, Math.floor(timeoutMs) + REQUEST_TIMEOUT_HEADROOM_MS),
+  );
+}
+
+function readFiniteTimeoutMs(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+  return value;
+}
+
+function resolveActHttpTimeoutMs(req: BrowserActRequest) {
+  const explicitTimeout = readFiniteTimeoutMs((req as { timeoutMs?: unknown }).timeoutMs);
+  if (explicitTimeout !== undefined) {
+    return resolveRequestTimeoutMs(explicitTimeout);
+  }
+  if (req.kind === "wait" && typeof req.timeMs === "number" && Number.isFinite(req.timeMs)) {
+    return resolveRequestTimeoutMs(req.timeMs);
+  }
+  return MIN_REQUEST_TIMEOUT_MS;
+}
+
 export type BrowserFormField = {
   ref: string;
   type: string;
@@ -94,6 +126,7 @@ export async function browserNavigate(
     url: string;
     targetId?: string;
     profile?: string;
+    timeoutMs?: number;
   },
 ): Promise<BrowserActionTabResult> {
   const q = buildProfileQuery(opts.profile);
@@ -101,7 +134,7 @@ export async function browserNavigate(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url: opts.url, targetId: opts.targetId }),
-    timeoutMs: 20000,
+    timeoutMs: resolveRequestTimeoutMs(opts.timeoutMs),
   });
 }
 
@@ -125,7 +158,7 @@ export async function browserArmDialog(
       targetId: opts.targetId,
       timeoutMs: opts.timeoutMs,
     }),
-    timeoutMs: 20000,
+    timeoutMs: resolveRequestTimeoutMs(opts.timeoutMs),
   });
 }
 
@@ -153,7 +186,7 @@ export async function browserArmFileChooser(
       targetId: opts.targetId,
       timeoutMs: opts.timeoutMs,
     }),
-    timeoutMs: 20000,
+    timeoutMs: resolveRequestTimeoutMs(opts.timeoutMs),
   });
 }
 
@@ -167,6 +200,7 @@ export async function browserWaitForDownload(
   },
 ): Promise<{ ok: true; targetId: string; download: BrowserDownloadPayload }> {
   const q = buildProfileQuery(opts.profile);
+  const timeoutMs = resolveRequestTimeoutMs(opts.timeoutMs);
   return await fetchBrowserJson<{
     ok: true;
     targetId: string;
@@ -179,7 +213,7 @@ export async function browserWaitForDownload(
       path: opts.path,
       timeoutMs: opts.timeoutMs,
     }),
-    timeoutMs: 20000,
+    timeoutMs,
   });
 }
 
@@ -194,6 +228,7 @@ export async function browserDownload(
   },
 ): Promise<{ ok: true; targetId: string; download: BrowserDownloadPayload }> {
   const q = buildProfileQuery(opts.profile);
+  const timeoutMs = resolveRequestTimeoutMs(opts.timeoutMs);
   return await fetchBrowserJson<{
     ok: true;
     targetId: string;
@@ -207,7 +242,7 @@ export async function browserDownload(
       path: opts.path,
       timeoutMs: opts.timeoutMs,
     }),
-    timeoutMs: 20000,
+    timeoutMs,
   });
 }
 
@@ -217,11 +252,12 @@ export async function browserAct(
   opts?: { profile?: string },
 ): Promise<BrowserActResponse> {
   const q = buildProfileQuery(opts?.profile);
+  const timeoutMs = resolveActHttpTimeoutMs(req);
   return await fetchBrowserJson<BrowserActResponse>(withBaseUrl(baseUrl, `/act${q}`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),
-    timeoutMs: 20000,
+    timeoutMs,
   });
 }
 
@@ -234,6 +270,7 @@ export async function browserScreenshotAction(
     element?: string;
     type?: "png" | "jpeg";
     profile?: string;
+    timeoutMs?: number;
   },
 ): Promise<BrowserActionPathResult> {
   const q = buildProfileQuery(opts.profile);
@@ -247,6 +284,6 @@ export async function browserScreenshotAction(
       element: opts.element,
       type: opts.type,
     }),
-    timeoutMs: 20000,
+    timeoutMs: resolveRequestTimeoutMs(opts.timeoutMs),
   });
 }

@@ -16,8 +16,8 @@ import { ErrorCodes, errorShape } from "../protocol/index.js";
 async function importSOP() {
   const { discoverSOPs, loadSOP, runSOPByName } = await import("../../sop/runner.js");
   const { generateSOP } = await import("../../sop/generate.js");
-  const { loadRunHistory } = await import("../../sop/store.js");
-  return { discoverSOPs, loadSOP, runSOPByName, generateSOP, loadRunHistory };
+  const { loadRunHistory, resolveSOPDataDir } = await import("../../sop/store.js");
+  return { discoverSOPs, loadSOP, runSOPByName, generateSOP, loadRunHistory, resolveSOPDataDir };
 }
 
 /** 默认 SOP 目录 */
@@ -229,9 +229,8 @@ export const sopHandlers: GatewayRequestHandlers = {
     }
 
     try {
-      const { loadRunHistory } = await importSOP();
-      const nodePath = await import("node:path");
-      const dataDir = nodePath.join(p.configDir ?? DEFAULT_CONFIG_DIR, p.name.trim());
+      const { loadRunHistory, resolveSOPDataDir } = await importSOP();
+      const dataDir = resolveSOPDataDir(p.configDir ?? DEFAULT_CONFIG_DIR, p.name.trim());
       const runs = await loadRunHistory(dataDir);
       const limit = p.limit ?? 20;
 

@@ -10,8 +10,8 @@
  */
 
 import { Type } from "@sinclair/typebox";
-import { type AnyAgentTool, jsonResult, readStringParam } from "./common.js";
 import { stringEnum } from "../schema/typebox.js";
+import { type AnyAgentTool, jsonResult, readStringParam } from "./common.js";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -130,9 +130,10 @@ SOPs are executable TypeScript files in the sops/ directory. Each SOP defines br
           const name = readStringParam(params, "name", { required: true });
           const description = readStringParam(params, "description", { required: true });
           const steps = Array.isArray(params.steps) ? (params.steps as string[]) : [];
-          const schedule =
-            typeof params.schedule === "string" ? params.schedule : undefined;
-          const triggers = Array.isArray(params.triggers) ? (params.triggers as string[]) : undefined;
+          const schedule = typeof params.schedule === "string" ? params.schedule : undefined;
+          const triggers = Array.isArray(params.triggers)
+            ? (params.triggers as string[])
+            : undefined;
 
           const { generateSOP } = await import("../../sop/generate.js");
           const result = await generateSOP({
@@ -155,9 +156,8 @@ SOPs are executable TypeScript files in the sops/ directory. Each SOP defines br
 
         case "history": {
           const name = readStringParam(params, "name", { required: true });
-          const { loadRunHistory } = await import("../../sop/store.js");
-          const nodePath = await import("node:path");
-          const dataDir = nodePath.join(configDir, name);
+          const { loadRunHistory, resolveSOPDataDir } = await import("../../sop/store.js");
+          const dataDir = resolveSOPDataDir(configDir, name);
           const runs = await loadRunHistory(dataDir);
 
           return jsonResult({

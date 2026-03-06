@@ -49,7 +49,12 @@ async function ensureBrowserForSitePool(browserProfile?: string): Promise<{
 }> {
   const cfg = loadConfig();
   const resolved = resolveBrowserConfig(cfg.browser, cfg);
-  const preferredProfile = browserProfile?.trim() || resolved.defaultProfile;
+  const preferredProfile = browserProfile?.trim();
+  if (!preferredProfile) {
+    throw new Error(
+      "site-pool account is missing browserProfile; configure a dedicated browser profile per account to isolate login sessions",
+    );
+  }
   const profile = resolveProfile(resolved, preferredProfile);
   if (!profile) {
     throw new Error(`browser profile not found: ${preferredProfile}`);

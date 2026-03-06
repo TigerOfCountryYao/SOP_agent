@@ -108,14 +108,30 @@ function enhanceBrowserFetchError(url: string, err: unknown, timeoutMs: number):
     msgLower.includes("aborted") ||
     msgLower.includes("abort") ||
     msgLower.includes("aborterror");
+  const looksLikeTransportFailure =
+    msgLower.includes("fetch failed") ||
+    msgLower.includes("network error") ||
+    msgLower.includes("networkerror") ||
+    msgLower.includes("econnrefused") ||
+    msgLower.includes("econnreset") ||
+    msgLower.includes("enotfound") ||
+    msgLower.includes("socket hang up");
   if (looksLikeTimeout) {
+    const timeoutHint = isLocal
+      ? "The browser process is usually still running; this often means a page action stalled or waited too long."
+      : "The sandbox browser is usually still running; this often means a page action stalled or waited too long.";
+    const timeoutModelHint =
+      "Do NOT repeat the same browser call blindly. Re-snapshot the page, then retry with a simpler targeted action or report the timeout.";
     return new Error(
-      `Can't reach the OpenClaw browser control service (timed out after ${timeoutMs}ms). ${operatorHint} ${modelHint}`,
+      `Browser control request timed out after ${timeoutMs}ms. ${timeoutHint} ${timeoutModelHint}`,
     );
   }
-  return new Error(
-    `Can't reach the OpenClaw browser control service. ${operatorHint} ${modelHint} (${msg})`,
-  );
+  if (looksLikeTransportFailure) {
+    return new Error(
+      `Can't reach the OpenClaw browser control service. ${operatorHint} ${modelHint} (${msg})`,
+    );
+  }
+  return err instanceof Error ? err : new Error(msg);
 }
 
 async function fetchHttpJson<T>(

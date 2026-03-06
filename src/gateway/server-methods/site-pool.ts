@@ -74,6 +74,13 @@ export const sitePoolHandlers: GatewayRequestHandlers = {
       respondBadRequest(respond, "invalid sitepool.create params: displayName required");
       return;
     }
+    if (!browserProfile) {
+      respondBadRequest(
+        respond,
+        "invalid sitepool.create params: browserProfile required (use a dedicated profile per account for login isolation)",
+      );
+      return;
+    }
     if (!loginType) {
       respondBadRequest(respond, "invalid sitepool.create params: unsupported loginType");
       return;

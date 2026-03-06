@@ -216,14 +216,17 @@ export async function browserTabs(
 export async function browserOpenTab(
   baseUrl: string | undefined,
   url: string,
-  opts?: { profile?: string },
+  opts?: { profile?: string; timeoutMs?: number },
 ): Promise<BrowserTab> {
   const q = buildProfileQuery(opts?.profile);
   return await fetchBrowserJson<BrowserTab>(withBaseUrl(baseUrl, `/tabs/open${q}`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url }),
-    timeoutMs: 15000,
+    timeoutMs:
+      typeof opts?.timeoutMs === "number" && Number.isFinite(opts.timeoutMs)
+        ? Math.max(15_000, Math.min(180_000, Math.floor(opts.timeoutMs) + 10_000))
+        : 30_000,
   });
 }
 
@@ -289,6 +292,7 @@ export async function browserSnapshot(
     labels?: boolean;
     mode?: "efficient";
     profile?: string;
+    timeoutMs?: number;
   },
 ): Promise<SnapshotResult> {
   const q = new URLSearchParams();
@@ -330,7 +334,10 @@ export async function browserSnapshot(
     q.set("profile", opts.profile);
   }
   return await fetchBrowserJson<SnapshotResult>(withBaseUrl(baseUrl, `/snapshot?${q.toString()}`), {
-    timeoutMs: 20000,
+    timeoutMs:
+      typeof opts.timeoutMs === "number" && Number.isFinite(opts.timeoutMs)
+        ? Math.max(20_000, Math.min(180_000, Math.floor(opts.timeoutMs) + 10_000))
+        : 60_000,
   });
 }
 
