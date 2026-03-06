@@ -23,9 +23,9 @@ const MAX_HISTORY_RUNS = 100;
 // Path helpers
 // ---------------------------------------------------------------------------
 
-/** 解析 SOP 数据目录 (~/.openclaw/sop/<name>) */
+/** Resolve per-SOP runtime data directory under the configured SOP state root. */
 export function resolveSOPDataDir(configDir: string, sopName: string): string {
-  return path.join(configDir, "sop", sopName);
+  return path.join(configDir, sopName);
 }
 
 function kvStorePath(dataDir: string): string {

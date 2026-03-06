@@ -78,6 +78,7 @@ export type SOPHistoryResult = {
 export type SOPsState = {
   client: GatewayBrowserClient | null;
   connected: boolean;
+  sopsAgentId?: string;
   sopsLoading: boolean;
   sopsList: SOPListResult | null;
   sopsError: string | null;
@@ -103,7 +104,9 @@ export async function loadSOPs(state: SOPsState) {
   state.sopsLoading = true;
   state.sopsError = null;
   try {
-    const res = await state.client.request<SOPListResult>("sop.list", {});
+    const res = await state.client.request<SOPListResult>("sop.list", {
+      ...(state.sopsAgentId ? { agentId: state.sopsAgentId } : {}),
+    });
     if (res) state.sopsList = res;
   } catch (err) {
     state.sopsError = getErrorMessage(err);
@@ -117,7 +120,9 @@ export async function loadSOPStatus(state: SOPsState) {
   state.sopsLoading = true;
   state.sopsError = null;
   try {
-    const res = await state.client.request<SOPStatusResult>("sop.status", {});
+    const res = await state.client.request<SOPStatusResult>("sop.status", {
+      ...(state.sopsAgentId ? { agentId: state.sopsAgentId } : {}),
+    });
     if (res) state.sopsStatus = res;
   } catch (err) {
     state.sopsError = getErrorMessage(err);
@@ -132,7 +137,10 @@ export async function runSOP(state: SOPsState, name: string) {
   state.sopsRunResult = null;
   state.sopsError = null;
   try {
-    const res = await state.client.request<SOPRunResult>("sop.run", { name });
+    const res = await state.client.request<SOPRunResult>("sop.run", {
+      name,
+      ...(state.sopsAgentId ? { agentId: state.sopsAgentId } : {}),
+    });
     if (res) state.sopsRunResult = res;
   } catch (err) {
     state.sopsError = getErrorMessage(err);
@@ -149,7 +157,10 @@ export async function createSOP(
   state.sopsLoading = true;
   state.sopsError = null;
   try {
-    await state.client.request<SOPCreateResult>("sop.create", opts);
+    await state.client.request<SOPCreateResult>("sop.create", {
+      ...opts,
+      ...(state.sopsAgentId ? { agentId: state.sopsAgentId } : {}),
+    });
     await loadSOPs(state);
   } catch (err) {
     state.sopsError = getErrorMessage(err);
@@ -164,7 +175,10 @@ export async function loadSOPHistory(state: SOPsState, name: string) {
   state.sopsError = null;
   state.sopsHistoryName = name;
   try {
-    const res = await state.client.request<SOPHistoryResult>("sop.history", { name });
+    const res = await state.client.request<SOPHistoryResult>("sop.history", {
+      name,
+      ...(state.sopsAgentId ? { agentId: state.sopsAgentId } : {}),
+    });
     if (res) state.sopsHistory = res;
   } catch (err) {
     state.sopsError = getErrorMessage(err);

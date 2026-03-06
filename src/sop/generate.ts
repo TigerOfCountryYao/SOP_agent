@@ -121,7 +121,7 @@ function buildTemplateCode(
   schedule?: string,
   triggers?: string[],
 ): string {
-  const imports = ['import { defineSOP, browser, shell, fs, verify } from "../../src/sop/index.js";'];
+  const imports = ['import { defineSOP, browser, shell, fs, verify } from "openclaw/sop";'];
 
   const scheduleField = schedule ? `\n  schedule: "${schedule}",` : "";
   const triggersField = triggers?.length ? `\n  triggers: ${JSON.stringify(triggers)},` : "";
@@ -243,7 +243,7 @@ verify.match(value, pattern, msg?) → void
 ## 代码模板
 
 \`\`\`typescript
-import { defineSOP, browser, shell, fs, verify } from "../../src/sop/index.js";
+import { defineSOP, browser, shell, fs, verify } from "openclaw/sop";
 
 export default defineSOP({
   name: "${name}",

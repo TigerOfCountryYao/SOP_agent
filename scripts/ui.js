@@ -50,8 +50,33 @@ function resolveRunner() {
   return null;
 }
 
+function escapeWindowsCmdArg(value) {
+  const text = String(value ?? "");
+  if (text.length === 0) {
+    return '""';
+  }
+  if (!/[\s"&^|<>()%!]/.test(text)) {
+    return text;
+  }
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function normalizeSpawn(cmd, args) {
+  if (process.platform !== "win32") {
+    return { cmd, args };
+  }
+
+  const shell = process.env.ComSpec || "cmd.exe";
+  const commandLine = [escapeWindowsCmdArg(cmd), ...args.map(escapeWindowsCmdArg)].join(" ");
+  return {
+    cmd: shell,
+    args: ["/d", "/s", "/c", commandLine],
+  };
+}
+
 function run(cmd, args) {
-  const child = spawn(cmd, args, {
+  const target = normalizeSpawn(cmd, args);
+  const child = spawn(target.cmd, target.args, {
     cwd: uiDir,
     stdio: "inherit",
     env: process.env,
@@ -65,7 +90,8 @@ function run(cmd, args) {
 }
 
 function runSync(cmd, args, envOverride) {
-  const result = spawnSync(cmd, args, {
+  const target = normalizeSpawn(cmd, args);
+  const result = spawnSync(target.cmd, target.args, {
     cwd: uiDir,
     stdio: "inherit",
     env: envOverride ?? process.env,

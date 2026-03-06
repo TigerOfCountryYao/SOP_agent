@@ -1,18 +1,10 @@
-/**
- * SOP Gateway RPC Handlers
- *
- * 提供 WebSocket RPC 方法供 Control UI（前端）调用：
- * - sop.list: 列出所有 SOP
- * - sop.status: 查看调度状态
- * - sop.run: 执行 SOP
- * - sop.create: 生成新 SOP
- * - sop.history: 查看运行历史
- */
-
+import { listAgentIds, resolveDefaultAgentId } from "../../agents/agent-scope.js";
+import { loadConfig } from "../../config/config.js";
+import { normalizeAgentId } from "../../routing/session-key.js";
+import { resolveSOPDirs } from "../../sop/paths.js";
 import type { GatewayRequestHandlers } from "./types.js";
 import { ErrorCodes, errorShape } from "../protocol/index.js";
 
-// 延迟导入 SOP 模块，避免影响 gateway 启动速度
 async function importSOP() {
   const { discoverSOPs, loadSOP, runSOPByName } = await import("../../sop/runner.js");
   const { generateSOP } = await import("../../sop/generate.js");
@@ -20,20 +12,36 @@ async function importSOP() {
   return { discoverSOPs, loadSOP, runSOPByName, generateSOP, loadRunHistory, resolveSOPDataDir };
 }
 
-/** 默认 SOP 目录 */
-const DEFAULT_SOPS_DIR = "sops";
-/** 默认 SOP 配置目录 */
-const DEFAULT_CONFIG_DIR = ".openclaw/sop";
+type SOPParams = {
+  agentId?: string;
+  sopsDir?: string;
+  configDir?: string;
+};
+
+function resolveSOPTarget(params?: SOPParams) {
+  const cfg = loadConfig();
+  const agentIdRaw = typeof params?.agentId === "string" ? params.agentId.trim() : "";
+  const agentId = agentIdRaw ? normalizeAgentId(agentIdRaw) : resolveDefaultAgentId(cfg);
+  if (agentIdRaw) {
+    const knownAgents = listAgentIds(cfg);
+    if (!knownAgents.includes(agentId)) {
+      throw new Error(`unknown agent id "${agentIdRaw}"`);
+    }
+  }
+  return resolveSOPDirs({
+    config: cfg,
+    agentId,
+    sopsDir: typeof params?.sopsDir === "string" ? params.sopsDir : undefined,
+    dataDir: typeof params?.configDir === "string" ? params.configDir : undefined,
+  });
+}
 
 export const sopHandlers: GatewayRequestHandlers = {
   "sop.list": async ({ params, respond }) => {
     try {
       const { discoverSOPs, loadSOP } = await importSOP();
-      const p = (params ?? {}) as { sopsDir?: string };
-      const sopsDir = p.sopsDir ?? DEFAULT_SOPS_DIR;
-      const entries = await discoverSOPs(sopsDir);
-
-      // 加载每个 SOP 的定义获取完整信息
+      const dirs = resolveSOPTarget(params as SOPParams);
+      const entries = await discoverSOPs(dirs.sopsDir);
       const sops = await Promise.all(
         entries.map(async (entry) => {
           try {
@@ -58,22 +66,19 @@ export const sopHandlers: GatewayRequestHandlers = {
         }),
       );
 
-      respond(true, { count: sops.length, sops }, undefined);
+      respond(true, { count: sops.length, sops, agentId: dirs.agentId, sopsDir: dirs.sopsDir }, undefined);
     } catch (err) {
-      respond(
-        false,
-        undefined,
-        errorShape(ErrorCodes.UNAVAILABLE, `sop.list failed: ${String(err)}`),
-      );
+      const message = err instanceof Error ? err.message : String(err);
+      const code = message.startsWith("unknown agent id ") ? ErrorCodes.INVALID_REQUEST : ErrorCodes.UNAVAILABLE;
+      respond(false, undefined, errorShape(code, `sop.list failed: ${message}`));
     }
   },
 
   "sop.status": async ({ params, respond }) => {
     try {
       const { discoverSOPs, loadSOP } = await importSOP();
-      const p = (params ?? {}) as { sopsDir?: string };
-      const sopsDir = p.sopsDir ?? DEFAULT_SOPS_DIR;
-      const entries = await discoverSOPs(sopsDir);
+      const dirs = resolveSOPTarget(params as SOPParams);
+      const entries = await discoverSOPs(dirs.sopsDir);
 
       const scheduled: { name: string; schedule: string }[] = [];
       const triggered: { name: string; triggers: string[] }[] = [];
@@ -88,29 +93,30 @@ export const sopHandlers: GatewayRequestHandlers = {
             triggered.push({ name: entry.name, triggers: def.triggers });
           }
         } catch {
-          // 跳过加载失败的 SOP
+          // Ignore invalid SOPs in status view.
         }
       }
 
       respond(
         true,
-        { totalSOPs: entries.length, scheduledSOPs: scheduled, triggeredSOPs: triggered },
+        {
+          totalSOPs: entries.length,
+          scheduledSOPs: scheduled,
+          triggeredSOPs: triggered,
+          agentId: dirs.agentId,
+        },
         undefined,
       );
     } catch (err) {
-      respond(
-        false,
-        undefined,
-        errorShape(ErrorCodes.UNAVAILABLE, `sop.status failed: ${String(err)}`),
-      );
+      const message = err instanceof Error ? err.message : String(err);
+      const code = message.startsWith("unknown agent id ") ? ErrorCodes.INVALID_REQUEST : ErrorCodes.UNAVAILABLE;
+      respond(false, undefined, errorShape(code, `sop.status failed: ${message}`));
     }
   },
 
   "sop.run": async ({ params, respond }) => {
-    const p = (params ?? {}) as {
+    const p = (params ?? {}) as SOPParams & {
       name?: string;
-      sopsDir?: string;
-      configDir?: string;
       args?: Record<string, unknown>;
     };
 
@@ -125,12 +131,10 @@ export const sopHandlers: GatewayRequestHandlers = {
 
     try {
       const { runSOPByName } = await importSOP();
-      const record = await runSOPByName(
-        p.sopsDir ?? DEFAULT_SOPS_DIR,
-        p.name.trim(),
-        p.configDir ?? DEFAULT_CONFIG_DIR,
-        { args: p.args },
-      );
+      const dirs = resolveSOPTarget(p);
+      const record = await runSOPByName(dirs.sopsDir, p.name.trim(), dirs.dataDir, {
+        args: p.args,
+      });
 
       respond(
         true,
@@ -142,23 +146,21 @@ export const sopHandlers: GatewayRequestHandlers = {
           stepsCount: record.steps.length,
           durationMs: record.finishedAt - record.startedAt,
           result: record.result,
+          agentId: dirs.agentId,
         },
         undefined,
       );
     } catch (err) {
-      respond(
-        false,
-        undefined,
-        errorShape(ErrorCodes.UNAVAILABLE, `sop.run failed: ${String(err)}`),
-      );
+      const message = err instanceof Error ? err.message : String(err);
+      const code = message.startsWith("unknown agent id ") ? ErrorCodes.INVALID_REQUEST : ErrorCodes.UNAVAILABLE;
+      respond(false, undefined, errorShape(code, `sop.run failed: ${message}`));
     }
   },
 
   "sop.create": async ({ params, respond }) => {
-    const p = (params ?? {}) as {
+    const p = (params ?? {}) as SOPParams & {
       name?: string;
       description?: string;
-      sopsDir?: string;
       steps?: string[];
       schedule?: string;
       triggers?: string[];
@@ -183,10 +185,11 @@ export const sopHandlers: GatewayRequestHandlers = {
 
     try {
       const { generateSOP } = await importSOP();
+      const dirs = resolveSOPTarget(p);
       const result = await generateSOP({
         name: p.name.trim(),
         description: p.description.trim(),
-        sopsDir: p.sopsDir ?? DEFAULT_SOPS_DIR,
+        sopsDir: dirs.sopsDir,
         steps: p.steps,
         schedule: p.schedule,
         triggers: p.triggers,
@@ -200,22 +203,20 @@ export const sopHandlers: GatewayRequestHandlers = {
           dirPath: result.dirPath,
           filePath: result.filePath,
           mdPath: result.mdPath,
+          agentId: dirs.agentId,
         },
         undefined,
       );
     } catch (err) {
-      respond(
-        false,
-        undefined,
-        errorShape(ErrorCodes.UNAVAILABLE, `sop.create failed: ${String(err)}`),
-      );
+      const message = err instanceof Error ? err.message : String(err);
+      const code = message.startsWith("unknown agent id ") ? ErrorCodes.INVALID_REQUEST : ErrorCodes.UNAVAILABLE;
+      respond(false, undefined, errorShape(code, `sop.create failed: ${message}`));
     }
   },
 
   "sop.history": async ({ params, respond }) => {
-    const p = (params ?? {}) as {
+    const p = (params ?? {}) as SOPParams & {
       name?: string;
-      configDir?: string;
       limit?: number;
     };
 
@@ -230,7 +231,8 @@ export const sopHandlers: GatewayRequestHandlers = {
 
     try {
       const { loadRunHistory, resolveSOPDataDir } = await importSOP();
-      const dataDir = resolveSOPDataDir(p.configDir ?? DEFAULT_CONFIG_DIR, p.name.trim());
+      const dirs = resolveSOPTarget(p);
+      const dataDir = resolveSOPDataDir(dirs.dataDir, p.name.trim());
       const runs = await loadRunHistory(dataDir);
       const limit = p.limit ?? 20;
 
@@ -239,23 +241,22 @@ export const sopHandlers: GatewayRequestHandlers = {
         {
           sopName: p.name.trim(),
           totalRuns: runs.length,
-          runs: runs.slice(-limit).map((r) => ({
-            runId: r.runId,
-            status: r.status,
-            startedAt: new Date(r.startedAt).toISOString(),
-            durationMs: r.finishedAt - r.startedAt,
-            stepsCount: r.steps.length,
-            error: r.error,
+          runs: runs.slice(-limit).map((run) => ({
+            runId: run.runId,
+            status: run.status,
+            startedAt: new Date(run.startedAt).toISOString(),
+            durationMs: run.finishedAt - run.startedAt,
+            stepsCount: run.steps.length,
+            error: run.error,
           })),
+          agentId: dirs.agentId,
         },
         undefined,
       );
     } catch (err) {
-      respond(
-        false,
-        undefined,
-        errorShape(ErrorCodes.UNAVAILABLE, `sop.history failed: ${String(err)}`),
-      );
+      const message = err instanceof Error ? err.message : String(err);
+      const code = message.startsWith("unknown agent id ") ? ErrorCodes.INVALID_REQUEST : ErrorCodes.UNAVAILABLE;
+      respond(false, undefined, errorShape(code, `sop.history failed: ${message}`));
     }
   },
 };

@@ -1,40 +1,16 @@
-/**
- * SOP Runner
- *
- * 负责发现、加载和执行 SOP 文件。
- * - 扫描 sops/ 目录发现 SOP
- * - 动态导入 sop.ts
- * - 构建 SOPContext
- * - 执行 run() 并记录结果
- */
-
 import crypto from "node:crypto";
 import nodeFs from "node:fs";
 import nodePath from "node:path";
-
-import type {
-  SOPContext,
-  SOPDefinition,
-  SOPEntry,
-  SOPRunRecord,
-} from "./types.js";
+import { fileURLToPath } from "node:url";
+import type { SOPContext, SOPDefinition, SOPEntry, SOPRunRecord } from "./types.js";
 import { SOPAbortError } from "./types.js";
 import { SOPLogger } from "./logger.js";
 import { setActiveLogger } from "./sdk.js";
-import {
-  appendRunRecord,
-  loadSOPKVStore,
-  resolveSOPDataDir,
-} from "./store.js";
-
-// ---------------------------------------------------------------------------
-// SOP 发现
-// ---------------------------------------------------------------------------
+import { appendRunRecord, loadSOPKVStore, resolveSOPDataDir } from "./store.js";
 
 const SOP_FILE_NAME = "sop.ts";
 const SOP_MD_NAME = "SOP.md";
 
-/** 扫描指定目录下的所有 SOP */
 export async function discoverSOPs(sopsDir: string): Promise<SOPEntry[]> {
   const resolvedDir = nodePath.resolve(sopsDir);
   const entries: SOPEntry[] = [];
@@ -50,7 +26,9 @@ export async function discoverSOPs(sopsDir: string): Promise<SOPEntry[]> {
   }
 
   for (const dirent of dirents) {
-    if (!dirent.isDirectory()) continue;
+    if (!dirent.isDirectory()) {
+      continue;
+    }
 
     const dirPath = nodePath.join(resolvedDir, dirent.name);
     const filePath = nodePath.join(dirPath, SOP_FILE_NAME);
@@ -59,21 +37,20 @@ export async function discoverSOPs(sopsDir: string): Promise<SOPEntry[]> {
     try {
       await nodeFs.promises.access(filePath);
     } catch {
-      continue; // 没有 sop.ts，跳过
+      continue;
     }
 
-    // 尝试从 SOP.md frontmatter 或文件名推断元信息
     let description = "";
     let hasMd = false;
     try {
       const mdContent = await nodeFs.promises.readFile(mdPath, "utf-8");
       hasMd = true;
       const descMatch = /description:\s*(.+)/i.exec(mdContent);
-      if (descMatch) {
+      if (descMatch?.[1]) {
         description = descMatch[1].trim();
       }
     } catch {
-      // SOP.md 是可选的
+      // SOP.md is optional metadata.
     }
 
     entries.push({
@@ -88,50 +65,38 @@ export async function discoverSOPs(sopsDir: string): Promise<SOPEntry[]> {
   return entries;
 }
 
-// ---------------------------------------------------------------------------
-// SOP 加载
-// ---------------------------------------------------------------------------
-
-/** 动态导入 sop.ts 并返回 SOPDefinition */
 export async function loadSOP(filePath: string): Promise<SOPDefinition> {
   const absPath = nodePath.resolve(filePath);
-  // 使用 jiti 来支持 TypeScript 动态导入
+  const sopSdkPath = fileURLToPath(new URL("./index.js", import.meta.url));
   const { createJiti } = await import("jiti");
   const jiti = createJiti(absPath, {
     interopDefault: true,
-    moduleCache: false, // 不缓存，支持自愈后重新加载
+    moduleCache: false,
+    // Workspace SOPs can live outside the repo, so alias the SDK import explicitly.
+    alias: {
+      "openclaw/sop": sopSdkPath,
+    },
   });
 
-  const mod = await jiti.import(absPath) as { default?: SOPDefinition };
+  const mod = (await jiti.import(absPath)) as { default?: SOPDefinition };
   const def = mod.default ?? mod;
 
   if (!def || typeof def !== "object" || typeof (def as SOPDefinition).run !== "function") {
-    throw new Error(`Invalid SOP file: ${filePath} — must export default defineSOP({...})`);
+    throw new Error(`Invalid SOP file: ${filePath} - must export default defineSOP({...})`);
   }
 
   return def as SOPDefinition;
 }
 
-// ---------------------------------------------------------------------------
-// SOP 执行
-// ---------------------------------------------------------------------------
-
 export type RunSOPOptions = {
-  /** SOP 文件路径 */
   filePath: string;
-  /** SOP 名称 */
   sopName: string;
-  /** OpenClaw 配置目录 (用于存储状态) */
   configDir: string;
-  /** 触发参数 */
   args?: Record<string, unknown>;
-  /** 触发类型 */
   trigger?: "manual" | "cron" | "event";
-  /** 超时 (ms), 默认 5 分钟 */
   timeoutMs?: number;
 };
 
-/** 执行一个 SOP */
 export async function runSOP(opts: RunSOPOptions): Promise<SOPRunRecord> {
   const {
     filePath,
@@ -146,18 +111,16 @@ export async function runSOP(opts: RunSOPOptions): Promise<SOPRunRecord> {
   const startedAt = Date.now();
   const logger = new SOPLogger();
   const dataDir = resolveSOPDataDir(configDir, sopName);
-
-  // 加载 KV 存储
   const { store: kvStore, flush: flushKV } = await loadSOPKVStore(dataDir);
 
-  // 构建 SOPContext
   const ctx: SOPContext = {
     env: process.env as Record<string, string | undefined>,
     args,
     date: (fmt?: string) => {
       const now = new Date();
-      if (!fmt) return now.toISOString();
-      // 简易格式化
+      if (!fmt) {
+        return now.toISOString();
+      }
       return fmt
         .replace("YYYY", String(now.getFullYear()))
         .replace("MM", String(now.getMonth() + 1).padStart(2, "0"))
@@ -173,7 +136,6 @@ export async function runSOP(opts: RunSOPOptions): Promise<SOPRunRecord> {
     store: kvStore,
   };
 
-  // 设置运行时日志上下文
   setActiveLogger(logger);
 
   let status: SOPRunRecord["status"] = "ok";
@@ -181,14 +143,10 @@ export async function runSOP(opts: RunSOPOptions): Promise<SOPRunRecord> {
   let result: unknown;
 
   try {
-    // 加载 SOP 定义
     const def = await loadSOP(filePath);
-
-    // 超时竞赛
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => reject(new Error(`SOP timed out after ${timeoutMs}ms`)), timeoutMs);
     });
-
     result = await Promise.race([def.run(ctx), timeoutPromise]);
   } catch (err) {
     if (err instanceof SOPAbortError) {
@@ -202,14 +160,12 @@ export async function runSOP(opts: RunSOPOptions): Promise<SOPRunRecord> {
     setActiveLogger(null);
   }
 
-  // 持久化 KV 存储
   try {
     await flushKV();
   } catch {
-    // best-effort
+    // Best-effort persistence only.
   }
 
-  // 构建运行记录
   const record: SOPRunRecord = {
     sopName,
     runId,
@@ -223,21 +179,15 @@ export async function runSOP(opts: RunSOPOptions): Promise<SOPRunRecord> {
     triggerArgs: Object.keys(args).length > 0 ? args : undefined,
   };
 
-  // 保存运行历史
   try {
     await appendRunRecord(dataDir, record);
   } catch {
-    // best-effort — 不让历史写入失败影响 SOP 结果
+    // History write failures should not change execution result.
   }
 
   return record;
 }
 
-// ---------------------------------------------------------------------------
-// 便捷入口
-// ---------------------------------------------------------------------------
-
-/** 按名称运行 SOP (在 sopsDir 中查找) */
 export async function runSOPByName(
   sopsDir: string,
   sopName: string,
@@ -245,9 +195,11 @@ export async function runSOPByName(
   opts?: { args?: Record<string, unknown>; trigger?: "manual" | "cron" | "event" },
 ): Promise<SOPRunRecord> {
   const entries = await discoverSOPs(sopsDir);
-  const entry = entries.find((e) => e.name === sopName);
+  const entry = entries.find((candidate) => candidate.name === sopName);
   if (!entry) {
-    throw new Error(`SOP not found: ${sopName}. Available: ${entries.map((e) => e.name).join(", ") || "none"}`);
+    throw new Error(
+      `SOP not found: ${sopName}. Available: ${entries.map((candidate) => candidate.name).join(", ") || "none"}`,
+    );
   }
   return runSOP({
     filePath: entry.filePath,
