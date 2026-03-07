@@ -10,6 +10,23 @@
 /** SOP 运行函数的返回值 */
 export type SOPResult = Record<string, unknown> | void;
 
+export type SOPWeekday =
+  | "monday"
+  | "tuesday"
+  | "wednesday"
+  | "thursday"
+  | "friday"
+  | "saturday"
+  | "sunday";
+
+export type SOPSchedule = {
+  kind: "weekly";
+  days: SOPWeekday[];
+  time: string;
+};
+
+export type SOPStatus = "draft" | "repairing" | "validated" | "failed";
+
 /** SOP 运行上下文 — 注入到每次 run() 调用中 */
 export type SOPContext = {
   /** 环境变量 (process.env 的只读快照) */
@@ -34,12 +51,56 @@ export type SOPDefinition = {
   description: string;
   /** 版本号（自愈更新时自增） */
   version?: number;
-  /** Cron 表达式（Phase 2） */
-  schedule?: string;
+  /** SOP 自己的每周定时配置 */
+  schedule?: SOPSchedule;
   /** 事件触发列表（Phase 2） */
   triggers?: string[];
   /** SOP 执行函数 */
   run: (ctx: SOPContext) => Promise<SOPResult>;
+};
+
+export type SOPRepairRecord = {
+  attempt: number;
+  healedFromRunId: string;
+  healStrategy: "retry" | "llm-fix";
+};
+
+export type SOPValidationState = {
+  staticOk: boolean;
+  dynamicOk: boolean;
+  lastValidatedAt?: number;
+  lastError?: string;
+};
+
+export type SOPSourceStep = {
+  toolName: string;
+  action?: string;
+  summary: string;
+  arguments?: Record<string, unknown>;
+  result?: unknown;
+};
+
+export type SOPSourceRun = {
+  sessionKey: string;
+  runId?: string;
+  userRequest: string;
+  finalResponse?: string;
+  replayArgs?: Record<string, unknown>;
+  steps: SOPSourceStep[];
+};
+
+export type SOPMetaRecord = {
+  version: 1;
+  name: string;
+  status: SOPStatus;
+  validation: SOPValidationState;
+  sourceRun: SOPSourceRun;
+  repair?: {
+    attempt: number;
+    status: "repairing" | "validated" | "failed";
+    lastError?: string;
+    lastAttemptAt?: number;
+  };
 };
 
 // ---------------------------------------------------------------------------
@@ -80,12 +141,16 @@ export type SOPRunRecord = {
   error?: string;
   /** 执行步骤列表 */
   steps: SOPStepRecord[];
+  /** 运行说明日志 */
+  logs?: string[];
   /** SOP run() 返回值 */
   result?: unknown;
   /** 触发方式 */
   trigger?: "manual" | "cron" | "event";
   /** 触发参数 */
   triggerArgs?: Record<string, unknown>;
+  /** 自动修复/重试元数据 */
+  repair?: SOPRepairRecord;
 };
 
 /** 运行历史文件格式 */
@@ -124,8 +189,12 @@ export type SOPEntry = {
   dirPath: string;
   /** sop.ts 文件路径 */
   filePath: string;
-  /** SOP.md 文件路径（可选） */
-  mdPath?: string;
+  /** SOP.md 文件路径 */
+  mdPath: string;
+  /** SOP 生命周期状态 */
+  status?: SOPStatus;
+  /** 最近一次验证状态 */
+  validation?: SOPValidationState;
   /** 版本号 */
   version?: number;
 };
@@ -141,7 +210,8 @@ export type SOPSchedulerStatus = {
   /** 已调度的 SOP 列表 */
   scheduledSOPs: {
     name: string;
-    schedule: string;
+    schedule: SOPSchedule;
+    scheduleLabel: string;
     nextRunAtMs?: number;
     lastRunAtMs?: number;
     lastStatus?: "ok" | "error" | "aborted";

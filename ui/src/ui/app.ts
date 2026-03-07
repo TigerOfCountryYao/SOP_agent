@@ -104,6 +104,7 @@ import {
   loadSOPs,
   loadSOPStatus,
   runSOP,
+  updateSOPSchedule as updateSOPScheduleRequest,
   type SOPCreateResult,
   type SOPHistoryResult,
   type SOPListResult,
@@ -243,7 +244,18 @@ export class OpenClawApp extends LitElement {
   @state() sopsHistory: SOPHistoryResult | null = null;
   @state() sopsHistoryName = "";
   @state() sopsStatus: SOPStatusResult | null = null;
-  @state() sopsCreateForm = { name: "", description: "", steps: "", schedule: "" };
+  @state() sopsEditingSchedule: string | null = null;
+  @state() sopsScheduleForm = {
+    days: [] as string[],
+    time: "",
+  };
+  @state() sopsCreateForm = {
+    name: "",
+    sessionKey: this.settings.sessionKey,
+    runId: "",
+    scheduleDays: [] as string[],
+    scheduleTime: "",
+  };
   @state() sopsShowCreate = false;
   @state() sopsPanel: SOPsViewPanel = "list";
 
@@ -597,19 +609,36 @@ export class OpenClawApp extends LitElement {
   }
 
   async handleCreateSOP() {
-    const { name, description, steps, schedule } = this.sopsCreateForm;
-    const stepsArray = steps
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const { name, sessionKey, runId, scheduleDays, scheduleTime } = this.sopsCreateForm;
     await createSOP(this, {
       name,
-      description,
-      steps: stepsArray,
-      schedule: schedule || undefined,
+      sessionKey,
+      runId: runId || undefined,
+      scheduleDays: scheduleDays.length > 0 ? scheduleDays : undefined,
+      scheduleTime: scheduleTime || undefined,
     });
     this.sopsShowCreate = false;
-    this.sopsCreateForm = { name: "", description: "", steps: "", schedule: "" };
+    this.sopsCreateForm = {
+      name: "",
+      sessionKey: this.sessionKey,
+      runId: "",
+      scheduleDays: [],
+      scheduleTime: "",
+    };
+  }
+
+  async handleUpdateSOPSchedule(name: string, clearSchedule = false) {
+    const { days, time } = this.sopsScheduleForm;
+    await updateSOPScheduleRequest(this, name, {
+      scheduleDays: clearSchedule ? undefined : days,
+      scheduleTime: clearSchedule ? undefined : time || undefined,
+      clearSchedule,
+    });
+    this.sopsEditingSchedule = null;
+    this.sopsScheduleForm = {
+      days: [],
+      time: "",
+    };
   }
 
   async handleChannelConfigSave() {

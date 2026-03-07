@@ -1,75 +1,44 @@
-/**
- * SOP Self-Healing
- *
- * 当 SOP 执行失败时，提供多种恢复策略：
- * 1. 重试 — 简单重新执行 (适用于临时网络/超时错误)
- * 2. 回退 — 使用上一个成功的运行参数 (store 中保存)
- * 3. LLM 修复 — 发送失败上下文给 LLM，生成修复后的 SOP 代码
- *
- * LLM 修复使用 runEmbeddedPiAgent (和 llm-slug-generator 相同的模式)。
- */
-
 import nodeFs from "node:fs";
 import nodePath from "node:path";
 import os from "node:os";
+import type { SOPRepairRecord, SOPRunRecord, SOPSourceRun, SOPStepRecord } from "./types.js";
 
-import type { SOPRunRecord, SOPStepRecord } from "./types.js";
-
-// ---------------------------------------------------------------------------
-// 类型
-// ---------------------------------------------------------------------------
-
-/** 自愈策略 */
 export type HealStrategy = "retry" | "llm-fix";
 
-/** 自愈结果 */
 export type HealResult = {
   strategy: HealStrategy;
   success: boolean;
-  /** 修复后的运行记录 (如果重新执行了) */
   retryRecord?: SOPRunRecord;
-  /** LLM 生成的修复代码 (如果使用了 llm-fix) */
   fixedCode?: string;
-  /** LLM 分析报告 */
   analysis?: string;
   error?: string;
 };
 
-/** 自愈选项 */
 export type HealOptions = {
-  /** 失败的运行记录 */
   failedRecord: SOPRunRecord;
-  /** SOP 文件路径 */
   sopFilePath: string;
-  /** 配置目录 */
+  sopMdPath?: string;
   configDir: string;
-  /** SOP 目录 */
   sopsDir: string;
-  /** 最大重试次数 (默认 2) */
   maxRetries?: number;
-  /** LLM 修复函数 (由上层注入，避免直接依赖 OpenClaw config) */
   llmCall?: (prompt: string) => Promise<string | null>;
+  sourceRun?: SOPSourceRun;
 };
 
-// ---------------------------------------------------------------------------
-// 自愈入口
-// ---------------------------------------------------------------------------
-
-/** 根据失败记录自动选择并执行自愈策略 */
 export async function healSOP(opts: HealOptions): Promise<HealResult> {
   const { failedRecord, maxRetries = 2 } = opts;
 
-  // 策略1: 判断是否是临时错误 → 重试
   if (isTransientError(failedRecord) && maxRetries > 0) {
-    return await retryHeal(opts);
+    const retryResult = await retryHeal(opts);
+    if (retryResult.success) {
+      return retryResult;
+    }
   }
 
-  // 策略2: LLM 修复 (需要 llmCall)
   if (opts.llmCall) {
-    return await llmFixHeal(opts);
+    return llmFixHeal(opts);
   }
 
-  // 无法自愈
   return {
     strategy: "retry",
     success: false,
@@ -77,18 +46,11 @@ export async function healSOP(opts: HealOptions): Promise<HealResult> {
   };
 }
 
-// ---------------------------------------------------------------------------
-// 策略1: 重试
-// ---------------------------------------------------------------------------
-
 async function retryHeal(opts: HealOptions): Promise<HealResult> {
   const { failedRecord, sopFilePath, configDir, maxRetries = 2 } = opts;
-
-  // 动态导入 runner 避免循环依赖
   const { runSOP } = await import("./runner.js");
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    // 指数退避
     const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 10_000);
     await new Promise((resolve) => setTimeout(resolve, delayMs));
 
@@ -98,6 +60,11 @@ async function retryHeal(opts: HealOptions): Promise<HealResult> {
       configDir,
       args: failedRecord.triggerArgs,
       trigger: failedRecord.trigger,
+      repair: {
+        attempt,
+        healedFromRunId: failedRecord.runId,
+        healStrategy: "retry",
+      },
     });
 
     if (record.status === "ok") {
@@ -116,12 +83,8 @@ async function retryHeal(opts: HealOptions): Promise<HealResult> {
   };
 }
 
-// ---------------------------------------------------------------------------
-// 策略2: LLM 修复
-// ---------------------------------------------------------------------------
-
 async function llmFixHeal(opts: HealOptions): Promise<HealResult> {
-  const { failedRecord, sopFilePath, llmCall } = opts;
+  const { failedRecord, sopFilePath, sopMdPath, configDir, maxRetries = 2, llmCall } = opts;
 
   if (!llmCall) {
     return {
@@ -131,8 +94,10 @@ async function llmFixHeal(opts: HealOptions): Promise<HealResult> {
     };
   }
 
-  // 读取当前 SOP 源代码
+  const { loadSOP, runSOP } = await import("./runner.js");
+
   let sourceCode: string;
+  let specMarkdown = "";
   try {
     sourceCode = await nodeFs.promises.readFile(sopFilePath, "utf-8");
   } catch {
@@ -143,63 +108,96 @@ async function llmFixHeal(opts: HealOptions): Promise<HealResult> {
     };
   }
 
-  // 构建上下文给 LLM
-  const prompt = buildFixPrompt(sourceCode, failedRecord);
-
-  // 调用 LLM
-  const response = await llmCall(prompt);
-  if (!response) {
-    return {
-      strategy: "llm-fix",
-      success: false,
-      error: "LLM returned empty response",
-    };
+  if (sopMdPath) {
+    try {
+      specMarkdown = await nodeFs.promises.readFile(sopMdPath, "utf-8");
+    } catch {
+      specMarkdown = "";
+    }
   }
 
-  // 解析 LLM 响应
-  const parsed = parseLLMFixResponse(response);
+  let currentSource = sourceCode;
+  let latestAnalysis: string | undefined;
+  let latestFixedCode: string | undefined;
+  let latestError: string | undefined;
 
-  if (parsed.fixedCode) {
-    // 写入修复后的代码
-    const backupPath = `${sopFilePath}.backup.${Date.now()}`;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const prompt = buildFixPrompt({
+      sourceCode: currentSource,
+      specMarkdown,
+      failedRecord,
+      attempt,
+      sourceRun: opts.sourceRun,
+    });
+    const response = await llmCall(prompt);
+    if (!response) {
+      latestError = "LLM returned empty response";
+      continue;
+    }
+
+    const parsed = parseLLMFixResponse(response);
+    latestAnalysis = parsed.analysis;
+    latestFixedCode = parsed.fixedCode;
+
+    if (!parsed.fixedCode) {
+      latestError = "LLM did not produce valid fix code";
+      continue;
+    }
+
+    const backupPath = `${sopFilePath}.backup.${Date.now()}.${attempt}`;
     try {
       await nodeFs.promises.copyFile(sopFilePath, backupPath);
       await nodeFs.promises.writeFile(sopFilePath, parsed.fixedCode, "utf-8");
-    } catch (writeErr) {
+      await loadSOP(sopFilePath);
+    } catch (err) {
+      latestError = `Static validation failed: ${err instanceof Error ? err.message : String(err)}`;
+      continue;
+    }
+
+    currentSource = parsed.fixedCode;
+    const repair: SOPRepairRecord = {
+      attempt,
+      healedFromRunId: failedRecord.runId,
+      healStrategy: "llm-fix",
+    };
+    const record = await runSOP({
+      filePath: sopFilePath,
+      sopName: failedRecord.sopName,
+      configDir,
+      args: failedRecord.triggerArgs,
+      trigger: failedRecord.trigger,
+      repair,
+    });
+
+    if (record.status === "ok") {
       return {
         strategy: "llm-fix",
-        success: false,
+        success: true,
+        retryRecord: record,
         fixedCode: parsed.fixedCode,
         analysis: parsed.analysis,
-        error: `Failed to write fixed code: ${(writeErr as Error).message}`,
       };
     }
 
-    return {
-      strategy: "llm-fix",
-      success: true,
-      fixedCode: parsed.fixedCode,
-      analysis: parsed.analysis,
-    };
+    latestError = record.error ?? `Repair attempt ${attempt} failed`;
   }
 
   return {
     strategy: "llm-fix",
     success: false,
-    analysis: parsed.analysis,
-    error: "LLM did not produce valid fix code",
+    fixedCode: latestFixedCode,
+    analysis: latestAnalysis,
+    error: latestError ?? `Repair failed after ${maxRetries} attempts`,
   };
 }
 
-// ---------------------------------------------------------------------------
-// 辅助函数
-// ---------------------------------------------------------------------------
-
-/** 判断是否是临时性错误 (网络、超时等) */
 function isTransientError(record: SOPRunRecord): boolean {
-  if (!record.error) return false;
+  if (!record.error) {
+    return false;
+  }
+
   const err = record.error.toLowerCase();
-  const transientPatterns = [
+  return [
     "timeout",
     "econnreset",
     "econnrefused",
@@ -209,66 +207,95 @@ function isTransientError(record: SOPRunRecord): boolean {
     "dns",
     "etimeout",
     "enotfound",
-    "429",             // rate limit
-    "503",             // service unavailable
-    "502",             // bad gateway
-    "504",             // gateway timeout
+    "429",
+    "503",
+    "502",
+    "504",
     "timed out",
-  ];
-  return transientPatterns.some((p) => err.includes(p));
+  ].some((pattern) => err.includes(pattern));
 }
 
-/** 构建 LLM 修复提示词 */
-function buildFixPrompt(sourceCode: string, failedRecord: SOPRunRecord): string {
-  const stepsLog = failedRecord.steps
-    .map((s: SOPStepRecord) => {
-      const status = s.status === "ok" ? "✓" : "✗";
-      const duration = s.finishedAt - s.startedAt;
-      const error = s.error ? ` | Error: ${s.error}` : "";
-      return `  ${status} ${s.action} (${duration}ms)${error}`;
-    })
-    .join("\n");
+function buildFixPrompt(params: {
+  sourceCode: string;
+  specMarkdown: string;
+  failedRecord: SOPRunRecord;
+  attempt: number;
+  sourceRun?: SOPSourceRun;
+}): string {
+  const { sourceCode, specMarkdown, failedRecord, attempt, sourceRun } = params;
+  const stepsLog = failedRecord.steps.map(formatStepSummary).join("\n");
+  const logs = (failedRecord.logs ?? []).map((line) => `  - ${line}`).join("\n");
+  const sourceSummary = sourceRun
+    ? [
+        `- Session: ${sourceRun.sessionKey}`,
+        sourceRun.runId ? `- Run ID: ${sourceRun.runId}` : "",
+        `- User request: ${sourceRun.userRequest}`,
+        sourceRun.finalResponse ? `- Final response: ${sourceRun.finalResponse}` : "",
+        sourceRun.replayArgs
+          ? `- Replay args: ${JSON.stringify(sourceRun.replayArgs)}`
+          : "",
+        sourceRun.steps.length > 0
+          ? `- Source steps:\n${sourceRun.steps.map((step) => `  - ${step.summary}`).join("\n")}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n")
+    : "  (source run not available)";
 
-  return `你是一个 SOP (Standard Operating Procedure) 代码修复专家。
+  return `You are repairing an OpenClaw SOP implementation.
 
-一个自动化 SOP 在执行过程中失败了。请分析错误原因并生成修复后的完整代码。
+Goal:
+- Update sop.ts so it satisfies SOP.md.
+- Keep the same exported SOP name and shape.
+- Preserve working behavior where possible.
+- Use real SDK actions and verify checks, not logging-only placeholders.
+- Make the minimum code change needed to satisfy the spec and fix the observed failure.
 
-## 当前 SOP 代码
+Repair attempt: ${attempt}
 
+SOP.md
+\`\`\`md
+${specMarkdown || "(missing SOP.md specification)"}
+\`\`\`
+
+Current sop.ts
 \`\`\`typescript
 ${sourceCode}
 \`\`\`
 
-## 执行结果
+Latest run result
+- SOP: ${failedRecord.sopName}
+- Status: ${failedRecord.status}
+- Error: ${failedRecord.error ?? "none"}
+- Step count: ${failedRecord.steps.length}
+- Log count: ${(failedRecord.logs ?? []).length}
 
-- **SOP名称**: ${failedRecord.sopName}
-- **状态**: ${failedRecord.status}
-- **错误**: ${failedRecord.error ?? "无"}
-- **总步骤数**: ${failedRecord.steps.length}
-- **步骤执行日志**:
-${stepsLog || "  (无步骤记录)"}
+Captured successful source run
+${sourceSummary}
 
-## 要求
+Step history
+${stepsLog || "  (no steps recorded)"}
 
-1. 分析失败原因
-2. 生成修复后的 **完整** SOP 代码 (保持相同的 import 和 export default 结构)
-3. 在修复部分添加注释说明改动
-4. 确保版本号 +1 (如有 version 字段)
+Run logs
+${logs || "  (no logs recorded)"}
 
-## 输出格式
-
-先用 <analysis> 标签输出分析，再用 <code> 标签输出完整修复代码：
-
-<analysis>
-你的分析...
-</analysis>
-
-<code>
-修复后的完整 TypeScript 代码...
-</code>`;
+Return:
+<analysis>short repair analysis</analysis>
+<code>full fixed TypeScript source</code>`;
 }
 
-/** 解析 LLM 返回的修复响应 */
+function formatStepSummary(step: SOPStepRecord): string {
+  const duration = step.finishedAt - step.startedAt;
+  return [
+    `  - ${step.action}`,
+    `status=${step.status}`,
+    `durationMs=${duration}`,
+    step.error ? `error=${step.error}` : "",
+  ]
+    .filter(Boolean)
+    .join(" | ");
+}
+
 function parseLLMFixResponse(response: string): {
   analysis?: string;
   fixedCode?: string;
@@ -276,7 +303,6 @@ function parseLLMFixResponse(response: string): {
   const analysisMatch = /<analysis>([\s\S]*?)<\/analysis>/i.exec(response);
   const codeMatch = /<code>([\s\S]*?)<\/code>/i.exec(response);
 
-  // 如果没有 <code> 标签，尝试提取 ```typescript 代码块
   let fixedCode = codeMatch?.[1]?.trim();
   if (!fixedCode) {
     const mdMatch = /```(?:typescript|ts)\n([\s\S]*?)```/i.exec(response);
@@ -289,15 +315,9 @@ function parseLLMFixResponse(response: string): {
   };
 }
 
-// ---------------------------------------------------------------------------
-// LLM 调用工厂 (与 OpenClaw 集成时使用)
-// ---------------------------------------------------------------------------
-
-/** 创建一个使用 runEmbeddedPiAgent 的 LLM 调用函数 */
 export async function createOpenClawLLMCall(opts: {
-  config: unknown; // OpenClawConfig (避免直接引用类型)
+  config: unknown;
 }): Promise<(prompt: string) => Promise<string | null>> {
-  // 延迟导入避免硬依赖
   const { resolveDefaultAgentId, resolveAgentWorkspaceDir, resolveAgentDir } =
     await import("../agents/agent-scope.js");
   const { runEmbeddedPiAgent } = await import("../agents/pi-embedded.js");
@@ -327,7 +347,7 @@ export async function createOpenClawLLMCall(opts: {
         agentDir,
         config: config as never,
         prompt,
-        timeoutMs: 60_000, // 60 秒超时 (修复代码需要更多时间)
+        timeoutMs: 60_000,
         runId: `sop-heal-${Date.now()}`,
       });
 
@@ -342,9 +362,12 @@ export async function createOpenClawLLMCall(opts: {
     } finally {
       if (tempSessionFile) {
         try {
-          await fsPromises.rm(nodePath.dirname(tempSessionFile), { recursive: true, force: true });
+          await fsPromises.rm(nodePath.dirname(tempSessionFile), {
+            recursive: true,
+            force: true,
+          });
         } catch {
-          // 忽略清理错误
+          // Ignore cleanup errors.
         }
       }
     }

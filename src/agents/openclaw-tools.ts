@@ -120,6 +120,7 @@ export function createOpenClawTools(options?: {
     createSOPTool({
       sopsDir: sopDirs.sopsDir,
       configDir: sopDirs.dataDir,
+      config: options?.config,
     }),
     ...(messageTool ? [messageTool] : []),
     createTtsTool({

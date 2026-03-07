@@ -13,10 +13,17 @@ export type {
   SOPDefinition,
   SOPContext,
   SOPResult,
+  SOPSchedule,
+  SOPWeekday,
+  SOPStatus,
   SOPRunRecord,
+  SOPRepairRecord,
   SOPStepRecord,
   SOPEntry,
   SOPKVStore,
+  SOPMetaRecord,
+  SOPSourceRun,
+  SOPValidationState,
 } from "./types.js";
 export { SOPAbortError, SOPVerifyError } from "./types.js";
 
@@ -28,7 +35,7 @@ export { discoverSOPs, loadSOP, runSOP, runSOPByName } from "./runner.js";
 export type { RunSOPOptions } from "./runner.js";
 
 // Store
-export { loadRunHistory } from "./store.js";
+export { loadRunHistory, loadSOPMeta } from "./store.js";
 
 // Scheduler
 export { SOPScheduler } from "./scheduler.js";
@@ -42,3 +49,5 @@ export type { HealStrategy, HealResult, HealOptions } from "./heal.js";
 // SOP Generation
 export { generateSOP } from "./generate.js";
 export type { GenerateSOPOptions, GenerateSOPResult } from "./generate.js";
+export { createSOPFromSourceRun, validateGeneratedSOP, requireValidatedSOP } from "./catalog.js";
+export { captureSuccessfulRunFromSession } from "./source-run.js";

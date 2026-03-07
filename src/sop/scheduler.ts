@@ -2,15 +2,16 @@
  * SOP Scheduler
  *
  * 轻量级调度器，独立于 CronService。
- * - 使用 croner 解析 cron 表达式
+ * - 使用 SOP 自己的每周定时配置
  * - 心跳定时器 (30s) 检查到期 SOP
  * - 事件触发分发
  * - 直接调用 runSOP() 执行
  */
 
-import { Cron } from "croner";
 import type { SOPDefinition, SOPEntry, SOPRunRecord, SOPSchedulerStatus } from "./types.js";
 import { discoverSOPs, loadSOP, runSOP } from "./runner.js";
+import { computeNextWeeklyRun, formatSOPSchedule } from "./schedule.js";
+import { loadSOPMeta, resolveSOPDataDir } from "./store.js";
 
 // ---------------------------------------------------------------------------
 // 类型
@@ -126,6 +127,7 @@ export class SOPScheduler {
         scheduledSOPs.push({
           name: state.entry.name,
           schedule: state.def.schedule,
+          scheduleLabel: formatSOPSchedule(state.def.schedule),
           nextRunAtMs: state.nextRunAtMs,
           lastRunAtMs: state.lastRunAtMs,
           lastStatus: state.lastStatus,
@@ -208,7 +210,7 @@ export class SOPScheduler {
 
       this.log.info(
         { sop: state.entry.name, dueAt: state.nextRunAtMs },
-        "sop-scheduler: cron due",
+        "sop-scheduler: schedule due",
       );
 
       // 不 await — 允许多个 SOP 并发执行
@@ -243,7 +245,7 @@ export class SOPScheduler {
 
       // 重新计算下次运行时间
       if (state.def.schedule) {
-        state.nextRunAtMs = computeNextRun(state.def.schedule, this.nowMs());
+        state.nextRunAtMs = computeNextWeeklyRun(state.def.schedule, this.nowMs());
       }
 
       this.log.info(
@@ -273,6 +275,10 @@ export class SOPScheduler {
       if (this.sopStates.has(entry.name)) continue;
 
       try {
+        const meta = await loadSOPMeta(resolveSOPDataDir(this.configDir, entry.name));
+        if (!meta || meta.status !== "validated") {
+          continue;
+        }
         const def = await loadSOP(entry.filePath);
 
         // 只要有 schedule 或 triggers 就注册
@@ -280,7 +286,7 @@ export class SOPScheduler {
           // 无调度需求，但仍注册用于 runNow
         }
 
-        const nextRunAtMs = def.schedule ? computeNextRun(def.schedule, now) : undefined;
+        const nextRunAtMs = def.schedule ? computeNextWeeklyRun(def.schedule, now) : undefined;
 
         this.sopStates.set(entry.name, {
           entry,
@@ -299,19 +305,5 @@ export class SOPScheduler {
 }
 
 // ---------------------------------------------------------------------------
-// Cron 工具
+// Schedule helpers
 // ---------------------------------------------------------------------------
-
-/** 计算 cron 表达式的下次运行时间 */
-function computeNextRun(expr: string, nowMs: number): number | undefined {
-  try {
-    const cron = new Cron(expr, { catch: false });
-    const nowSecondMs = Math.floor(nowMs / 1000) * 1000;
-    const next = cron.nextRun(new Date(nowSecondMs));
-    if (!next) return undefined;
-    const nextMs = next.getTime();
-    return Number.isFinite(nextMs) && nextMs > nowSecondMs ? nextMs : undefined;
-  } catch {
-    return undefined;
-  }
-}

@@ -235,7 +235,18 @@ export type AppViewState = {
   sopsHistory: SOPHistoryResult | null;
   sopsHistoryName: string;
   sopsStatus: SOPStatusResult | null;
-  sopsCreateForm: { name: string; description: string; steps: string; schedule: string };
+  sopsCreateForm: {
+    name: string;
+    sessionKey: string;
+    runId: string;
+    scheduleDays: string[];
+    scheduleTime: string;
+  };
+  sopsEditingSchedule: string | null;
+  sopsScheduleForm: {
+    days: string[];
+    time: string;
+  };
   sopsShowCreate: boolean;
   sopsPanel: SOPsViewPanel;
   debugLoading: boolean;
@@ -310,6 +321,7 @@ export type AppViewState = {
   handleLoadSOPHistory: (name: string) => Promise<void>;
   handleRunSOP: (name: string) => Promise<void>;
   handleCreateSOP: () => Promise<void>;
+  handleUpdateSOPSchedule: (name: string, clearSchedule?: boolean) => Promise<void>;
   handleLoadSitePool: () => Promise<void>;
   handleCreateSitePoolAccount: () => Promise<void>;
   handleCheckSitePoolAccount: (id: string) => Promise<void>;

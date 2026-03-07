@@ -12,6 +12,19 @@ import { appendRunRecord, loadSOPKVStore, resolveSOPDataDir } from "./store.js";
 const SOP_FILE_NAME = "sop.ts";
 const SOP_MD_NAME = "SOP.md";
 
+type SOPAutoHealOptions = {
+  enabled?: boolean;
+  maxRetries?: number;
+  llmCall?: (prompt: string) => Promise<string | null>;
+};
+
+type SOPSpecSummary = {
+  hasSpec: boolean;
+  specValid: boolean;
+  description?: string;
+  content?: string;
+};
+
 function resolveSOPSdkAliasPath(): string {
   const repoRoot = resolveOpenClawPackageRootSync({
     moduleUrl: import.meta.url,
@@ -57,30 +70,24 @@ export async function discoverSOPs(sopsDir: string): Promise<SOPEntry[]> {
     const mdPath = nodePath.join(dirPath, SOP_MD_NAME);
 
     try {
-      await nodeFs.promises.access(filePath);
+      await Promise.all([
+        nodeFs.promises.access(filePath),
+        nodeFs.promises.access(mdPath),
+      ]);
     } catch {
       continue;
     }
 
     let description = "";
-    let hasMd = false;
-    try {
-      const mdContent = await nodeFs.promises.readFile(mdPath, "utf-8");
-      hasMd = true;
-      const descMatch = /description:\s*(.+)/i.exec(mdContent);
-      if (descMatch?.[1]) {
-        description = descMatch[1].trim();
-      }
-    } catch {
-      // SOP.md is optional metadata.
-    }
+    const spec = await loadSOPSpecSummary(mdPath);
+    description = spec.description ?? "";
 
     entries.push({
       name: dirent.name,
       description: description || dirent.name,
       dirPath,
       filePath,
-      mdPath: hasMd ? mdPath : undefined,
+      mdPath,
     });
   }
 
@@ -117,6 +124,7 @@ export type RunSOPOptions = {
   args?: Record<string, unknown>;
   trigger?: "manual" | "cron" | "event";
   timeoutMs?: number;
+  repair?: SOPRunRecord["repair"];
 };
 
 export async function runSOP(opts: RunSOPOptions): Promise<SOPRunRecord> {
@@ -127,6 +135,7 @@ export async function runSOP(opts: RunSOPOptions): Promise<SOPRunRecord> {
     args = {},
     trigger = "manual",
     timeoutMs = 5 * 60 * 1000,
+    repair,
   } = opts;
 
   const runId = crypto.randomUUID();
@@ -196,9 +205,11 @@ export async function runSOP(opts: RunSOPOptions): Promise<SOPRunRecord> {
     status,
     error,
     steps: logger.getSteps(),
+    logs: logger.getLogs(),
     result: result ?? undefined,
     trigger,
     triggerArgs: Object.keys(args).length > 0 ? args : undefined,
+    repair,
   };
 
   try {
@@ -214,7 +225,11 @@ export async function runSOPByName(
   sopsDir: string,
   sopName: string,
   configDir: string,
-  opts?: { args?: Record<string, unknown>; trigger?: "manual" | "cron" | "event" },
+  opts?: {
+    args?: Record<string, unknown>;
+    trigger?: "manual" | "cron" | "event";
+    autoHeal?: SOPAutoHealOptions;
+  },
 ): Promise<SOPRunRecord> {
   const entries = await discoverSOPs(sopsDir);
   const entry = entries.find((candidate) => candidate.name === sopName);
@@ -223,11 +238,80 @@ export async function runSOPByName(
       `SOP not found: ${sopName}. Available: ${entries.map((candidate) => candidate.name).join(", ") || "none"}`,
     );
   }
-  return runSOP({
+  const initialRecord = await runSOP({
     filePath: entry.filePath,
     sopName: entry.name,
     configDir,
     args: opts?.args,
     trigger: opts?.trigger,
   });
+
+  if (initialRecord.status === "ok" || opts?.autoHeal?.enabled === false) {
+    return initialRecord;
+  }
+
+  const { healSOP } = await import("./heal.js");
+  const healResult = await healSOP({
+    failedRecord: initialRecord,
+    sopFilePath: entry.filePath,
+    sopMdPath: entry.mdPath,
+    configDir,
+    sopsDir,
+    maxRetries: opts?.autoHeal?.maxRetries,
+    llmCall: opts?.autoHeal?.llmCall,
+  });
+
+  return healResult.retryRecord ?? initialRecord;
+}
+
+export async function loadSOPSpecSummary(mdPath?: string): Promise<SOPSpecSummary> {
+  if (!mdPath) {
+    return { hasSpec: false, specValid: false };
+  }
+
+  try {
+    const content = await nodeFs.promises.readFile(mdPath, "utf-8");
+    const description = extractDescriptionFromSpec(content);
+    return {
+      hasSpec: true,
+      specValid: isValidSOPSpec(content),
+      description,
+      content,
+    };
+  } catch (err) {
+    if ((err as { code?: string })?.code === "ENOENT") {
+      return { hasSpec: false, specValid: false };
+    }
+    throw err;
+  }
+}
+
+function extractDescriptionFromSpec(content: string): string | undefined {
+  const frontmatterMatch = /^---\r?\n([\s\S]*?)\r?\n---/m.exec(content);
+  if (frontmatterMatch?.[1]) {
+    const descMatch = /^description:\s*(.+)$/im.exec(frontmatterMatch[1]);
+    if (descMatch?.[1]) {
+      return descMatch[1].trim();
+    }
+  }
+
+  const lines = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const headingIndex = lines.findIndex((line) => line.startsWith("# "));
+  if (headingIndex >= 0) {
+    return lines.slice(headingIndex + 1).find((line) => !line.startsWith("#"));
+  }
+  return lines.find((line) => !line.startsWith("---"));
+}
+
+function isValidSOPSpec(content: string): boolean {
+  const normalized = content.toLowerCase();
+  return (
+    normalized.includes("## objective") &&
+    normalized.includes("## steps") &&
+    normalized.includes("## validation") &&
+    normalized.includes("## recovery")
+  );
 }

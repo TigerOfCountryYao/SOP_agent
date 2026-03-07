@@ -14,6 +14,7 @@ import type {
   SOPHistoryFile,
   SOPKVStore,
   SOPKVStoreFile,
+  SOPMetaRecord,
   SOPRunRecord,
 } from "./types.js";
 
@@ -34,6 +35,10 @@ function kvStorePath(dataDir: string): string {
 
 function historyPath(dataDir: string): string {
   return path.join(dataDir, "history.json");
+}
+
+function metaPath(dataDir: string): string {
+  return path.join(dataDir, "meta.json");
 }
 
 // ---------------------------------------------------------------------------
@@ -116,4 +121,21 @@ export async function loadRunHistory(dataDir: string): Promise<SOPRunRecord[]> {
   const file = historyPath(dataDir);
   const history = await readJSONSafe<SOPHistoryFile>(file, { version: 1, runs: [] });
   return history.runs;
+}
+
+export async function loadSOPMeta(dataDir: string): Promise<SOPMetaRecord | null> {
+  const file = metaPath(dataDir);
+  try {
+    const raw = await fs.promises.readFile(file, "utf-8");
+    return JSON.parse(raw) as SOPMetaRecord;
+  } catch (err) {
+    if ((err as { code?: string })?.code === "ENOENT") {
+      return null;
+    }
+    throw err;
+  }
+}
+
+export async function saveSOPMeta(dataDir: string, meta: SOPMetaRecord): Promise<void> {
+  await atomicWriteJSON(metaPath(dataDir), meta);
 }

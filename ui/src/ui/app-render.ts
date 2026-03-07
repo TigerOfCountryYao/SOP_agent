@@ -760,6 +760,22 @@ export function renderApp(state: AppViewState) {
                 onCreateFormChange: (patch) =>
                   (state.sopsCreateForm = { ...state.sopsCreateForm, ...patch }),
                 onCreate: () => state.handleCreateSOP(),
+                editingScheduleName: state.sopsEditingSchedule,
+                scheduleForm: state.sopsScheduleForm,
+                onEditSchedule: (name, schedule) => {
+                  state.sopsEditingSchedule = name;
+                  state.sopsScheduleForm = {
+                    days: schedule?.days ? [...schedule.days] : [],
+                    time: schedule?.time ?? "",
+                  };
+                },
+                onScheduleFormChange: (patch) =>
+                  (state.sopsScheduleForm = { ...state.sopsScheduleForm, ...patch }),
+                onSaveSchedule: (name, clearSchedule) => state.handleUpdateSOPSchedule(name, clearSchedule),
+                onCancelSchedule: () => {
+                  state.sopsEditingSchedule = null;
+                  state.sopsScheduleForm = { days: [], time: "" };
+                },
                 showCreate: state.sopsShowCreate,
                 onToggleCreate: () => (state.sopsShowCreate = !state.sopsShowCreate),
               })

@@ -1,23 +1,12 @@
-/**
- * SOP 列表 / 管理页面视图
- *
- * 与 Skills 页面并列，位于 Agent 模块下。
- * 使用与其它 views 相同的 Lit HTML 模板风格。
- */
-
 import { html, nothing } from "lit";
 import type {
   SOPEntry,
+  SOPHistoryResult,
   SOPListResult,
   SOPRunResult,
   SOPStatusResult,
-  SOPHistoryResult,
   SOPsViewPanel,
 } from "../controllers/sops.ts";
-
-// ---------------------------------------------------------------------------
-// 主视图 Props
-// ---------------------------------------------------------------------------
 
 export type SOPsProps = {
   loading: boolean;
@@ -36,24 +25,44 @@ export type SOPsProps = {
   onHistoryNameChange: (name: string) => void;
   onLoadStatus: () => void;
   onLoadHistory: (name: string) => void;
-  // Create form
   createForm: SOPCreateForm;
   onCreateFormChange: (patch: Partial<SOPCreateForm>) => void;
   onCreate: () => void;
+  editingScheduleName: string | null;
+  scheduleForm: SOPScheduleForm;
+  onEditSchedule: (
+    name: string,
+    schedule?: { kind: "weekly"; days: string[]; time: string },
+  ) => void;
+  onScheduleFormChange: (patch: Partial<SOPScheduleForm>) => void;
+  onSaveSchedule: (name: string, clearSchedule?: boolean) => void;
+  onCancelSchedule: () => void;
   showCreate: boolean;
   onToggleCreate: () => void;
 };
 
 export type SOPCreateForm = {
   name: string;
-  description: string;
-  steps: string;
-  schedule: string;
+  sessionKey: string;
+  runId: string;
+  scheduleDays: string[];
+  scheduleTime: string;
 };
 
-// ---------------------------------------------------------------------------
-// 主渲染入口
-// ---------------------------------------------------------------------------
+export type SOPScheduleForm = {
+  days: string[];
+  time: string;
+};
+
+const WEEKDAY_OPTIONS: Array<[string, string]> = [
+  ["monday", "Mon"],
+  ["tuesday", "Tue"],
+  ["wednesday", "Wed"],
+  ["thursday", "Thu"],
+  ["friday", "Fri"],
+  ["saturday", "Sat"],
+  ["sunday", "Sun"],
+];
 
 export function renderSOPs(props: SOPsProps) {
   return html`
@@ -61,28 +70,27 @@ export function renderSOPs(props: SOPsProps) {
       <div class="row" style="justify-content: space-between;">
         <div>
           <div class="card-title">SOPs</div>
-          <div class="card-sub">Standard Operating Procedures — automated multi-step workflows.</div>
+          <div class="card-sub">Standard Operating Procedures - automated multi-step workflows.</div>
         </div>
         <div class="row" style="gap: 6px;">
           <button class="btn" ?disabled=${props.loading} @click=${props.onRefresh}>
-            ${props.loading ? "Loading…" : "Refresh"}
+            ${props.loading ? "Loading..." : "Refresh"}
           </button>
           <button class="btn primary" @click=${props.onToggleCreate}>
-            ${props.showCreate ? "Cancel" : "+ Create"}
+            ${props.showCreate ? "Cancel" : "+ Capture"}
           </button>
         </div>
       </div>
 
-      <!-- Sub-navigation -->
       <div class="row" style="gap: 4px; margin-top: 14px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
         ${(["list", "status", "history"] as const).map(
-          (p) => html`
+          (panel) => html`
             <button
-              class="btn${props.panel === p ? " primary" : ""}"
+              class="btn${props.panel === panel ? " primary" : ""}"
               style="font-size: 12px; padding: 4px 10px;"
-              @click=${() => props.onPanelChange(p)}
+              @click=${() => props.onPanelChange(panel)}
             >
-              ${p === "list" ? "SOPs" : p === "status" ? "Schedule" : "History"}
+              ${panel === "list" ? "SOPs" : panel === "status" ? "Schedule" : "History"}
             </button>
           `,
         )}
@@ -92,10 +100,7 @@ export function renderSOPs(props: SOPsProps) {
         ? html`<div class="callout danger" style="margin-top: 12px;">${props.error}</div>`
         : nothing}
 
-      <!-- Create form -->
       ${props.showCreate ? renderCreateForm(props) : nothing}
-
-      <!-- Panels -->
       ${props.panel === "list" ? renderSOPList(props) : nothing}
       ${props.panel === "status" ? renderSOPStatus(props) : nothing}
       ${props.panel === "history" ? renderSOPHistory(props) : nothing}
@@ -103,15 +108,12 @@ export function renderSOPs(props: SOPsProps) {
   `;
 }
 
-// ---------------------------------------------------------------------------
-// SOP 列表
-// ---------------------------------------------------------------------------
-
 function renderSOPList(props: SOPsProps) {
   const sops = props.sopsList?.sops ?? [];
   if (sops.length === 0) {
-    return html`<div class="muted" style="margin-top: 16px;">No SOPs found. Create one to get started.</div>`;
+    return html`<div class="muted" style="margin-top: 16px;">No published SOPs yet. Capture one from a successful task.</div>`;
   }
+
   return html`
     <div class="list" style="margin-top: 16px;">
       ${sops.map((sop) => renderSOPItem(sop, props))}
@@ -121,25 +123,33 @@ function renderSOPList(props: SOPsProps) {
 
 function renderSOPItem(sop: SOPEntry, props: SOPsProps) {
   const isRunning = props.sopsRunning === sop.name;
+  const scheduleLabel =
+    sop.schedule?.label ??
+    sop.scheduleLabel ??
+    (sop.schedule ? `${sop.schedule.days.join(", ")} ${sop.schedule.time}` : undefined);
+
   return html`
     <div class="list-item">
       <div class="list-main">
-        <div class="list-title">
-          📋 ${sop.name}
-          ${sop.version ? html`<span class="muted" style="font-size: 11px; margin-left: 6px;">v${sop.version}</span>` : nothing}
-          ${sop.loadError ? html`<span class="pill danger" style="margin-left: 6px;">Load Error</span>` : nothing}
+      <div class="list-title">
+          SOP ${sop.name}
+          ${sop.version
+            ? html`<span class="muted" style="font-size: 11px; margin-left: 6px;">v${sop.version}</span>`
+            : nothing}
+          ${renderSOPStatusPill(sop)}
         </div>
         <div class="list-sub">${sop.description ?? "No description."}</div>
         <div class="row" style="gap: 10px; margin-top: 4px;">
-          ${sop.schedule
-            ? html`<span class="pill" style="font-size: 11px;">⏱ ${sop.schedule}</span>`
+          ${scheduleLabel
+            ? html`<span class="pill" style="font-size: 11px;">Schedule: ${scheduleLabel}</span>`
             : nothing}
           ${sop.triggers?.length
-            ? html`<span class="pill" style="font-size: 11px;">⚡ ${sop.triggers.join(", ")}</span>`
+            ? html`<span class="pill" style="font-size: 11px;">Triggers: ${sop.triggers.join(", ")}</span>`
             : nothing}
         </div>
-        ${isRunning
-          ? html`<div class="muted" style="margin-top: 6px;">Running…</div>`
+        ${isRunning ? html`<div class="muted" style="margin-top: 6px;">Running...</div>` : nothing}
+        ${sop.validation?.lastError && sop.status !== "validated"
+          ? html`<div class="muted" style="margin-top: 6px;">${sop.validation.lastError}</div>`
           : nothing}
         ${!isRunning && props.sopsRunResult?.sopName === sop.name
           ? renderRunResult(props.sopsRunResult)
@@ -152,13 +162,19 @@ function renderSOPItem(sop: SOPEntry, props: SOPsProps) {
             ?disabled=${isRunning || !!props.sopsRunning}
             @click=${() => props.onRun(sop.name)}
           >
-            ${isRunning ? "Running…" : "▶ Run"}
+            ${isRunning ? "Running..." : "Run"}
           </button>
           <button class="btn" @click=${() => props.onViewHistory(sop.name)}>
             History
           </button>
+          <button class="btn" @click=${() => props.onEditSchedule(sop.name, sop.schedule)}>
+            Schedule
+          </button>
         </div>
       </div>
+      ${props.editingScheduleName === sop.name
+        ? renderScheduleEditor(sop.name, props)
+        : nothing}
     </div>
   `;
 }
@@ -167,16 +183,15 @@ function renderRunResult(result: SOPRunResult) {
   const isOk = result.status === "ok";
   return html`
     <div class="callout ${isOk ? "" : "danger"}" style="margin-top: 8px; font-size: 12px;">
-      <strong>${isOk ? "✅" : "❌"} ${result.status}</strong>
-      — ${result.stepsCount} steps, ${result.durationMs}ms
-      ${result.error ? html`<br/><span class="muted">Error: ${result.error}</span>` : nothing}
+      <strong>${isOk ? "OK" : "Error"} ${result.status}</strong>
+      - ${result.stepsCount} steps, ${result.logsCount ?? 0} logs, ${result.durationMs}ms
+      ${result.repairTriggered
+        ? html`<br /><span class="muted">Repair: ${result.repair?.healStrategy} attempt ${result.repair?.attempt}</span>`
+        : nothing}
+      ${result.error ? html`<br /><span class="muted">Error: ${result.error}</span>` : nothing}
     </div>
   `;
 }
-
-// ---------------------------------------------------------------------------
-// 调度状态
-// ---------------------------------------------------------------------------
 
 function renderSOPStatus(props: SOPsProps) {
   const status = props.sopsStatus;
@@ -189,50 +204,103 @@ function renderSOPStatus(props: SOPsProps) {
       </div>
     `;
   }
+
   return html`
     <div style="margin-top: 16px;">
       <div class="muted" style="margin-bottom: 8px;">Total SOPs: ${status.totalSOPs}</div>
       ${status.scheduledSOPs.length > 0
         ? html`
-          <div class="card-title" style="font-size: 13px; margin-top: 12px;">⏱ Scheduled</div>
-          <div class="list">
-            ${status.scheduledSOPs.map(
-              (s) => html`
-                <div class="list-item" style="padding: 8px 0;">
-                  <div class="list-main">
-                    <div class="list-title">${s.name}</div>
+            <div class="card-title" style="font-size: 13px; margin-top: 12px;">Scheduled</div>
+            <div class="list">
+              ${status.scheduledSOPs.map(
+                (entry) => html`
+                  <div class="list-item" style="padding: 8px 0;">
+                    <div class="list-main">
+                      <div class="list-title">${entry.name}</div>
+                    </div>
+                    <div class="list-meta"><span class="pill">${entry.scheduleLabel}</span></div>
                   </div>
-                  <div class="list-meta"><span class="pill">${s.schedule}</span></div>
-                </div>
-              `,
-            )}
-          </div>
-        `
+                `,
+              )}
+            </div>
+          `
         : html`<div class="muted" style="margin-top: 8px;">No scheduled SOPs.</div>`}
       ${status.triggeredSOPs.length > 0
         ? html`
-          <div class="card-title" style="font-size: 13px; margin-top: 12px;">⚡ Event-Triggered</div>
-          <div class="list">
-            ${status.triggeredSOPs.map(
-              (s) => html`
-                <div class="list-item" style="padding: 8px 0;">
-                  <div class="list-main">
-                    <div class="list-title">${s.name}</div>
+            <div class="card-title" style="font-size: 13px; margin-top: 12px;">Event-Triggered</div>
+            <div class="list">
+              ${status.triggeredSOPs.map(
+                (entry) => html`
+                  <div class="list-item" style="padding: 8px 0;">
+                    <div class="list-main">
+                      <div class="list-title">${entry.name}</div>
+                    </div>
+                    <div class="list-meta"><span class="pill">${entry.triggers.join(", ")}</span></div>
                   </div>
-                  <div class="list-meta"><span class="pill">${s.triggers.join(", ")}</span></div>
-                </div>
-              `,
-            )}
-          </div>
-        `
+                `,
+              )}
+            </div>
+          `
         : nothing}
     </div>
   `;
 }
 
-// ---------------------------------------------------------------------------
-// 运行历史
-// ---------------------------------------------------------------------------
+function renderScheduleEditor(name: string, props: SOPsProps) {
+  const form = props.scheduleForm;
+  return html`
+    <div class="callout" style="margin-top: 10px;">
+      <div class="card-title" style="font-size: 13px;">Edit Weekly Schedule</div>
+      <div class="muted" style="margin-top: 4px;">Choose one or more weekdays and a time.</div>
+      <label class="field" style="margin-top: 8px;">
+        <span>Days</span>
+        <div class="row" style="gap: 6px; flex-wrap: wrap; margin-top: 6px;">
+          ${WEEKDAY_OPTIONS.map(
+            ([value, label]) => html`
+              <label class="pill" style="cursor: pointer;">
+                <input
+                  type="checkbox"
+                  .checked=${form.days.includes(value)}
+                  @change=${(e: Event) =>
+                    props.onScheduleFormChange({
+                      days: toggleScheduleDay(
+                        form.days,
+                        value,
+                        (e.target as HTMLInputElement).checked,
+                      ),
+                    })}
+                />
+                ${label}
+              </label>
+            `,
+          )}
+        </div>
+      </label>
+      <label class="field" style="margin-top: 8px;">
+        <span>Time</span>
+        <input
+          .value=${form.time}
+          placeholder="09:00"
+          @input=${(e: Event) =>
+            props.onScheduleFormChange({ time: (e.target as HTMLInputElement).value })}
+        />
+      </label>
+      <div class="row" style="margin-top: 10px; gap: 8px;">
+        <button
+          class="btn primary"
+          ?disabled=${!form.time.trim() || form.days.length === 0 || props.loading}
+          @click=${() => props.onSaveSchedule(name, false)}
+        >
+          Save Schedule
+        </button>
+        <button class="btn" ?disabled=${props.loading} @click=${() => props.onSaveSchedule(name, true)}>
+          Remove Schedule
+        </button>
+        <button class="btn" @click=${props.onCancelSchedule}>Cancel</button>
+      </div>
+    </div>
+  `;
+}
 
 function renderSOPHistory(props: SOPsProps) {
   return html`
@@ -242,7 +310,7 @@ function renderSOPHistory(props: SOPsProps) {
           <span>SOP Name</span>
           <input
             .value=${props.sopsHistoryName}
-            placeholder="Enter SOP name…"
+            placeholder="Enter SOP name..."
             @input=${(e: Event) => props.onHistoryNameChange((e.target as HTMLInputElement).value)}
           />
         </label>
@@ -264,12 +332,11 @@ function renderHistoryTable(history: SOPHistoryResult) {
   if (history.runs.length === 0) {
     return html`<div class="muted" style="margin-top: 12px;">No runs recorded for "${history.sopName}".</div>`;
   }
+
   const sorted = [...history.runs].reverse();
   return html`
     <div style="margin-top: 12px;">
-      <div class="muted" style="margin-bottom: 8px;">
-        Total runs: ${history.totalRuns}
-      </div>
+      <div class="muted" style="margin-bottom: 8px;">Total runs: ${history.totalRuns}</div>
       <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
         <thead>
           <tr style="border-bottom: 1px solid var(--border);">
@@ -277,20 +344,28 @@ function renderHistoryTable(history: SOPHistoryResult) {
             <th style="text-align: left; padding: 6px 8px; color: var(--muted-color);">Status</th>
             <th style="text-align: left; padding: 6px 8px; color: var(--muted-color);">Duration</th>
             <th style="text-align: left; padding: 6px 8px; color: var(--muted-color);">Steps</th>
+            <th style="text-align: left; padding: 6px 8px; color: var(--muted-color);">Logs</th>
+            <th style="text-align: left; padding: 6px 8px; color: var(--muted-color);">Repair</th>
             <th style="text-align: left; padding: 6px 8px; color: var(--muted-color);">Error</th>
           </tr>
         </thead>
         <tbody>
           ${sorted.map(
-            (r) => html`
+            (run) => html`
               <tr style="border-bottom: 1px solid var(--border);">
-                <td style="padding: 6px 8px; font-family: monospace;">${r.startedAt?.replace("T", " ").slice(0, 19) ?? "-"}</td>
-                <td style="padding: 6px 8px;">
-                  <span class="pill ${r.status === "ok" ? "" : "danger"}">${r.status}</span>
+                <td style="padding: 6px 8px; font-family: monospace;">
+                  ${run.startedAt?.replace("T", " ").slice(0, 19) ?? "-"}
                 </td>
-                <td style="padding: 6px 8px; font-family: monospace;">${r.durationMs}ms</td>
-                <td style="padding: 6px 8px;">${r.stepsCount}</td>
-                <td style="padding: 6px 8px; color: var(--danger-color, #d14343);">${r.error ?? "-"}</td>
+                <td style="padding: 6px 8px;">
+                  <span class="pill ${run.status === "ok" ? "" : "danger"}">${run.status}</span>
+                </td>
+                <td style="padding: 6px 8px; font-family: monospace;">${run.durationMs}ms</td>
+                <td style="padding: 6px 8px;">${run.stepsCount}</td>
+                <td style="padding: 6px 8px;">${run.logsCount ?? 0}</td>
+                <td style="padding: 6px 8px;">
+                  ${run.repair ? `${run.repair.healStrategy} #${run.repair.attempt}` : "-"}
+                </td>
+                <td style="padding: 6px 8px; color: var(--danger-color, #d14343);">${run.error ?? "-"}</td>
               </tr>
             `,
           )}
@@ -300,59 +375,110 @@ function renderHistoryTable(history: SOPHistoryResult) {
   `;
 }
 
-// ---------------------------------------------------------------------------
-// 创建表单
-// ---------------------------------------------------------------------------
-
 function renderCreateForm(props: SOPsProps) {
   const form = props.createForm;
   return html`
     <div class="callout" style="margin-top: 14px;">
-      <div class="card-title" style="font-size: 14px;">Create New SOP</div>
+      <div class="card-title" style="font-size: 14px;">Capture SOP From Successful Session</div>
       <label class="field" style="margin-top: 10px;">
         <span>Name *</span>
         <input
           .value=${form.name}
           placeholder="my-sop"
-          @input=${(e: Event) => props.onCreateFormChange({ name: (e.target as HTMLInputElement).value })}
+          @input=${(e: Event) =>
+            props.onCreateFormChange({ name: (e.target as HTMLInputElement).value })}
         />
       </label>
       <label class="field" style="margin-top: 8px;">
-        <span>Description *</span>
-        <textarea
-          .value=${form.description}
-          placeholder="What does this SOP do…"
-          rows="2"
-          @input=${(e: Event) => props.onCreateFormChange({ description: (e.target as HTMLTextAreaElement).value })}
-        ></textarea>
-      </label>
-      <label class="field" style="margin-top: 8px;">
-        <span>Steps (one per line)</span>
-        <textarea
-          .value=${form.steps}
-          placeholder="Open browser\nNavigate to page\nCapture screenshot"
-          rows="3"
-          @input=${(e: Event) => props.onCreateFormChange({ steps: (e.target as HTMLTextAreaElement).value })}
-        ></textarea>
-      </label>
-      <label class="field" style="margin-top: 8px;">
-        <span>Schedule (cron expression, optional)</span>
+        <span>Session Key *</span>
         <input
-          .value=${form.schedule}
-          placeholder="0 9 * * *"
-          @input=${(e: Event) => props.onCreateFormChange({ schedule: (e.target as HTMLInputElement).value })}
+          .value=${form.sessionKey}
+          placeholder="agent:main:main"
+          @input=${(e: Event) =>
+            props.onCreateFormChange({ sessionKey: (e.target as HTMLInputElement).value })}
+        />
+      </label>
+      <label class="field" style="margin-top: 8px;">
+        <span>Run ID</span>
+        <input
+          .value=${form.runId}
+          placeholder="Optional. Keep empty to capture the latest successful task in this session."
+          @input=${(e: Event) =>
+            props.onCreateFormChange({ runId: (e.target as HTMLInputElement).value })}
+        />
+      </label>
+      <label class="field" style="margin-top: 8px;">
+        <span>Weekly Schedule Days</span>
+        <div class="muted" style="margin-top: 4px;">Optional. Set a weekly plan now, or add one later from the SOP card.</div>
+        <div class="row" style="gap: 6px; flex-wrap: wrap; margin-top: 6px;">
+          ${WEEKDAY_OPTIONS.map(
+            ([value, label]) => html`
+              <label class="pill" style="cursor: pointer;">
+                <input
+                  type="checkbox"
+                  .checked=${form.scheduleDays.includes(value)}
+                  @change=${(e: Event) =>
+                    props.onCreateFormChange({
+                      scheduleDays: toggleScheduleDay(
+                        form.scheduleDays,
+                        value,
+                        (e.target as HTMLInputElement).checked,
+                      ),
+                    })}
+                />
+                ${label}
+              </label>
+            `,
+          )}
+        </div>
+      </label>
+      <label class="field" style="margin-top: 8px;">
+        <span>Weekly Schedule Time</span>
+        <input
+          .value=${form.scheduleTime}
+          placeholder="09:00"
+          @input=${(e: Event) =>
+            props.onCreateFormChange({ scheduleTime: (e.target as HTMLInputElement).value })}
         />
       </label>
       <div class="row" style="margin-top: 12px; gap: 8px;">
         <button
           class="btn primary"
-          ?disabled=${!form.name.trim() || !form.description.trim() || props.loading}
+          ?disabled=${!form.name.trim() || !form.sessionKey.trim() || props.loading}
           @click=${props.onCreate}
         >
-          Create SOP
+          Capture SOP
         </button>
         <button class="btn" @click=${props.onToggleCreate}>Cancel</button>
       </div>
     </div>
   `;
+}
+
+function renderSOPStatusPill(sop: SOPEntry) {
+  if (sop.loadError) {
+    return html`<span class="pill danger" style="margin-left: 6px;">Load Error</span>`;
+  }
+  switch (sop.status) {
+    case "validated":
+      return html`<span class="pill" style="margin-left: 6px;">Ready</span>`;
+    case "repairing":
+      return html`<span class="pill" style="margin-left: 6px;">Repairing</span>`;
+    case "draft":
+      return html`<span class="pill" style="margin-left: 6px;">Validating</span>`;
+    case "failed":
+      return html`<span class="pill danger" style="margin-left: 6px;">Needs Attention</span>`;
+    default:
+      return nothing;
+  }
+}
+
+function toggleScheduleDay(days: string[], value: string, checked: boolean) {
+  const next = new Set(days);
+  if (checked) {
+    next.add(value);
+  } else {
+    next.delete(value);
+  }
+  return [...next];
 }
