@@ -65,6 +65,7 @@ public struct OpenClawChatUsage: Codable, Hashable, Sendable {
 public struct OpenClawChatMessageContent: Codable, Hashable, Sendable {
     public let type: String?
     public let text: String?
+    public let data: String?
     public let thinking: String?
     public let thinkingSignature: String?
     public let mimeType: String?
@@ -79,6 +80,7 @@ public struct OpenClawChatMessageContent: Codable, Hashable, Sendable {
     public init(
         type: String?,
         text: String?,
+        data: String? = nil,
         thinking: String? = nil,
         thinkingSignature: String? = nil,
         mimeType: String?,
@@ -90,6 +92,7 @@ public struct OpenClawChatMessageContent: Codable, Hashable, Sendable {
     {
         self.type = type
         self.text = text
+        self.data = data
         self.thinking = thinking
         self.thinkingSignature = thinkingSignature
         self.mimeType = mimeType
@@ -103,6 +106,7 @@ public struct OpenClawChatMessageContent: Codable, Hashable, Sendable {
     enum CodingKeys: String, CodingKey {
         case type
         case text
+        case data
         case thinking
         case thinkingSignature
         case mimeType
@@ -117,6 +121,7 @@ public struct OpenClawChatMessageContent: Codable, Hashable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.type = try container.decodeIfPresent(String.self, forKey: .type)
         self.text = try container.decodeIfPresent(String.self, forKey: .text)
+        self.data = try container.decodeIfPresent(String.self, forKey: .data)
         self.thinking = try container.decodeIfPresent(String.self, forKey: .thinking)
         self.thinkingSignature = try container.decodeIfPresent(String.self, forKey: .thinkingSignature)
         self.mimeType = try container.decodeIfPresent(String.self, forKey: .mimeType)
@@ -201,6 +206,7 @@ public struct OpenClawChatMessage: Codable, Identifiable, Sendable {
                 OpenClawChatMessageContent(
                     type: "text",
                     text: text,
+                    data: nil,
                     thinking: nil,
                     thinkingSignature: nil,
                     mimeType: nil,

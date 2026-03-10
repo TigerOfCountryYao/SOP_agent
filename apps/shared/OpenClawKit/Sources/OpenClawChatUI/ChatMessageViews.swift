@@ -186,6 +186,12 @@ private struct ChatMessageBody: View {
                 ChatAssistantTextBody(text: text, markdownVariant: self.markdownVariant)
             }
 
+            if !self.inlineImages.isEmpty {
+                ForEach(self.inlineImages.indices, id: \.self) { idx in
+                    InlineImageRow(content: self.inlineImages[idx])
+                }
+            }
+
             if !self.inlineAttachments.isEmpty {
                 ForEach(self.inlineAttachments.indices, id: \.self) { idx in
                     AttachmentRow(att: self.inlineAttachments[idx], isUser: self.isUser)
@@ -240,6 +246,13 @@ private struct ChatMessageBody: View {
             default:
                 false
             }
+        }
+    }
+
+    private var inlineImages: [OpenClawChatMessageContent] {
+        self.message.content.filter { content in
+            let kind = (content.type ?? "").lowercased()
+            return kind == "image" && content.data != nil
         }
     }
 
@@ -335,6 +348,36 @@ private struct ChatMessageBody: View {
 
     private var bubbleShadowYOffset: CGFloat {
         self.style == .onboarding && !self.isUser ? 2 : 0
+    }
+}
+
+private struct InlineImageRow: View {
+    let content: OpenClawChatMessageContent
+
+    var body: some View {
+        Group {
+            if let image = self.image {
+                OpenClawPlatformImageFactory.image(image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxHeight: 260)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+            } else {
+                Text(self.content.fileName ?? "Image")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var image: OpenClawPlatformImage? {
+        guard let data = self.content.data, let decoded = Data(base64Encoded: data) else {
+            return nil
+        }
+        return OpenClawPlatformImage(data: decoded)
     }
 }
 

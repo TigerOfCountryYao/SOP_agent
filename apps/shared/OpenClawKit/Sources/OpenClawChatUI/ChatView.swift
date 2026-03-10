@@ -325,55 +325,11 @@ public struct OpenClawChatView: View {
     }
 
     private func mergeToolResults(in messages: [OpenClawChatMessage]) -> [OpenClawChatMessage] {
-        var result: [OpenClawChatMessage] = []
-        result.reserveCapacity(messages.count)
-
-        for message in messages {
-            guard self.isToolResultMessage(message) else {
-                result.append(message)
-                continue
-            }
-
-            guard let toolCallId = message.toolCallId,
-                  let last = result.last,
-                  self.toolCallIds(in: last).contains(toolCallId)
-            else {
-                result.append(message)
-                continue
-            }
-
-            let toolText = self.toolResultText(from: message)
-            if toolText.isEmpty {
-                continue
-            }
-
-            var content = last.content
-            content.append(
-                OpenClawChatMessageContent(
-                    type: "tool_result",
-                    text: toolText,
-                    thinking: nil,
-                    thinkingSignature: nil,
-                    mimeType: nil,
-                    fileName: nil,
-                    content: nil,
-                    id: toolCallId,
-                    name: message.toolName,
-                    arguments: nil))
-
-            let merged = OpenClawChatMessage(
-                id: last.id,
-                role: last.role,
-                content: content,
-                timestamp: last.timestamp,
-                toolCallId: last.toolCallId,
-                toolName: last.toolName,
-                usage: last.usage,
-                stopReason: last.stopReason)
-            result[result.count - 1] = merged
-        }
-
-        return result
+        ChatMessageMerging.mergeToolResults(
+            in: messages,
+            isToolResultMessage: { self.isToolResultMessage($0) },
+            toolCallIds: { self.toolCallIds(in: $0) },
+            toolName: { $0.toolName })
     }
 
     private func isToolResultMessage(_ message: OpenClawChatMessage) -> Bool {
@@ -399,6 +355,106 @@ public struct OpenClawChatView: View {
     }
 
     private func toolResultText(from message: OpenClawChatMessage) -> String {
+        let parts = message.content.compactMap { content -> String? in
+            let kind = (content.type ?? "text").lowercased()
+            guard kind == "text" || kind.isEmpty else { return nil }
+            return content.text
+        }
+        return parts.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+enum ChatMessageMerging {
+    static func mergeToolResults(
+        in messages: [OpenClawChatMessage],
+        isToolResultMessage: (OpenClawChatMessage) -> Bool,
+        toolCallIds: (OpenClawChatMessage) -> Set<String>,
+        toolName: (OpenClawChatMessage) -> String?) -> [OpenClawChatMessage]
+    {
+        var result: [OpenClawChatMessage] = []
+        result.reserveCapacity(messages.count)
+
+        for message in messages {
+            guard isToolResultMessage(message) else {
+                result.append(message)
+                continue
+            }
+
+            guard let toolCallId = message.toolCallId,
+                  let last = result.last,
+                  toolCallIds(last).contains(toolCallId)
+            else {
+                result.append(message)
+                continue
+            }
+
+            let additions = mergedToolResultContent(from: message, toolCallId: toolCallId, toolName: toolName(message))
+            if additions.isEmpty {
+                continue
+            }
+
+            var content = last.content
+            content.append(contentsOf: additions)
+
+            let merged = OpenClawChatMessage(
+                id: last.id,
+                role: last.role,
+                content: content,
+                timestamp: last.timestamp,
+                toolCallId: last.toolCallId,
+                toolName: last.toolName,
+                usage: last.usage,
+                stopReason: last.stopReason)
+            result[result.count - 1] = merged
+        }
+
+        return result
+    }
+
+    private static func mergedToolResultContent(
+        from message: OpenClawChatMessage,
+        toolCallId: String,
+        toolName: String?) -> [OpenClawChatMessageContent]
+    {
+        var merged: [OpenClawChatMessageContent] = []
+        let text = toolResultText(from: message)
+        if !text.isEmpty {
+            merged.append(
+                OpenClawChatMessageContent(
+                    type: "tool_result",
+                    text: text,
+                    data: nil,
+                    thinking: nil,
+                    thinkingSignature: nil,
+                    mimeType: nil,
+                    fileName: nil,
+                    content: nil,
+                    id: toolCallId,
+                    name: toolName,
+                    arguments: nil))
+        }
+
+        for item in message.content {
+            let kind = (item.type ?? "").lowercased()
+            guard kind == "image", item.data != nil else { continue }
+            merged.append(
+                OpenClawChatMessageContent(
+                    type: "image",
+                    text: nil,
+                    data: item.data,
+                    thinking: nil,
+                    thinkingSignature: nil,
+                    mimeType: item.mimeType,
+                    fileName: item.fileName,
+                    content: item.content,
+                    id: toolCallId,
+                    name: toolName,
+                    arguments: nil))
+        }
+        return merged
+    }
+
+    private static func toolResultText(from message: OpenClawChatMessage) -> String {
         let parts = message.content.compactMap { content -> String? in
             let kind = (content.type ?? "text").lowercased()
             guard kind == "text" || kind.isEmpty else { return nil }
